@@ -1,0 +1,6 @@
+config BR2_PACKAGE_LEDBETTER
+    bool "LEDBetter Client"
+    depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+    select BR2_PACKAGE_HOST_RUSTC
+    help
+      LEDBetter Client is the LED driver client

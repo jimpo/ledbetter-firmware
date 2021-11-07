@@ -1,0 +1,24 @@
+From 2ec464ca12d95ac578cf9626c97705c51ab25caf Mon Sep 17 00:00:00 2001
+From: Jim Posen <jim.posen@gmail.com>
+Date: Sat, 6 Nov 2021 15:58:25 -0400
+Subject: [PATCH] Remove leaked CONFIG_FB_BACKLIGHT from uapi
+
+---
+ include/uapi/linux/fb.h | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/include/uapi/linux/fb.h b/include/uapi/linux/fb.h
+index f80f26565f78..1a23810ce499 100644
+--- a/include/uapi/linux/fb.h
++++ b/include/uapi/linux/fb.h
+@@ -399,7 +399,6 @@ struct fb_dmabuf_export {
+        __u32 flags;
+ };
+ 
+-//#ifdef CONFIG_FB_BACKLIGHT
+ /* Settings for the generic backlight code */
+ #define FB_BACKLIGHT_LEVELS	128
+ #define FB_BACKLIGHT_MAX	0xFF
+-- 
+2.25.1
+
