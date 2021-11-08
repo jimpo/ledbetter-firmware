@@ -1,0 +1,6 @@
+gpio_label = "gpa0"
+gpio_line = 0
+
+[controller]
+host = "192.168.50.84"
+port = 5555
