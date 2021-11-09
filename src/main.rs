@@ -3,16 +3,15 @@ mod error;
 mod jsonrpc;
 mod ws2812b;
 
-use clap::{Arg, App, SubCommand};
-use gpio_cdev::{Chip, ChipIterator, chips, LineRequestFlags};
+use clap::{Arg, App};
+use gpio_cdev::{LineRequestFlags};
 use serde::{Deserialize};
 
 use std::{
     fs::File,
     process,
+    io::Read,
 };
-use std::io::Read;
-use websocket::url::Url;
 
 use crate::ws2812b::WS2812BWrite;
 use crate::error::Error;

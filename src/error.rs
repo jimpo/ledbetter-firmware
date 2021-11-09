@@ -17,7 +17,11 @@ pub enum Error {
 	#[display(fmt = "Unknown RPC method from controller: {:?}", _0)]
 	UnknownRpcMethod(#[error(not(source))] String),
 	#[from(ignore)]
+	RequestSerialization(serde_json::Error),
+	#[from(ignore)]
 	RequestDeserialization(serde_json::Error),
+	#[from(ignore)]
+	ResponseDeserialization(serde_json::Error),
 	#[from(ignore)]
 	ResponseSerialization(serde_json::Error),
 	#[from(ignore)]
