@@ -1,3 +1,4 @@
+name = "Test ODroid"
 gpio_label = "gpa0"
 gpio_line = 0
 

@@ -18,6 +18,8 @@ use crate::jsonrpc;
 
 pub enum Request {
 	ReverseAuth(ReverseAuthParams),
+	Play,
+	Pause,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -25,22 +27,37 @@ pub struct ReverseAuthParams {
 	pub challenge: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ReverseAuthResult {
+	pub name: String,
+}
+
 impl Request {
 	pub fn from_jsonrpc(jsonrpc_req: &jsonrpc::Request) -> Result<Self, Error> {
 		jsonrpc_req.validate().map_err(Error::BadJsonrpcRequest)?;
 		if jsonrpc_req.method == "reverse_auth" {
 			Ok(Request::ReverseAuth(parse_params(&jsonrpc_req)?))
+		} else if jsonrpc_req.method == "play" {
+			let _ = parse_params::<()>(&jsonrpc_req)?;
+			Ok(Request::Play)
+		} else if jsonrpc_req.method == "pause" {
+			let _ = parse_params::<()>(&jsonrpc_req)?;
+			Ok(Request::Pause)
 		} else {
 			Err(Error::UnknownRpcMethod(jsonrpc_req.method.to_string()))
 		}
 	}
 
 	pub fn to_jsonrpc(&self, id: u32) -> Result<jsonrpc::Request, Error> {
-		let (method, params_ser) = match self {
+		let (method, params_ser_result) = match self {
 			Request::ReverseAuth(params) =>
-				("reverse_auth", serde_json::to_string(params)
-					.map_err(Error::RequestSerialization)?),
+				("reverse_auth", serde_json::to_string(params)),
+			Request::Play =>
+				("play", serde_json::to_string(&())),
+			Request::Pause =>
+				("pause", serde_json::to_string(&())),
 		};
+		let params_ser = params_ser_result.map_err(Error::RequestSerialization)?;
 		let params = RawValue::from_string(params_ser)
 			.map_err(Error::RequestSerialization)?;
 		let request = jsonrpc::Request {
@@ -53,22 +70,61 @@ impl Request {
 	}
 }
 
+pub struct Controller {
+	driver_name: String,
+}
+
+impl Controller {
+	pub fn new<S: ToString>(driver_name: S) -> Self {
+		Controller {
+			driver_name: driver_name.to_string(),
+		}
+	}
+
+	pub fn driver_name(&self) -> &str {
+		&self.driver_name
+	}
+
+	pub fn handle_reverse_auth(&self, _params: &ReverseAuthParams) -> ReverseAuthResult {
+		ReverseAuthResult {
+			name: self.driver_name.clone(),
+		}
+	}
+
+	pub fn handle_play(&self) {
+
+	}
+
+	pub fn handle_pause(&self) {
+
+	}
+}
+
 fn parse_params<'a, T: Deserialize<'a>>(request: &'a jsonrpc::Request) -> Result<T, Error> {
 	serde_json::from_str(request.params.get()).map_err(Error::RequestDeserialization)
 }
 
-fn handle_reverse_auth(challenge: &str) -> Result<Value, Error> {
-	Ok(Value::Null)
-}
-
-fn handle_request<'a>(request: &'a jsonrpc::Request) -> Result<jsonrpc::Response<'a>, Error> {
+fn handle_request<'a>(controller: &'a Controller, request: &'a jsonrpc::Request)
+	-> Result<jsonrpc::Response<'a>, Error>
+{
 	let result = match Request::from_jsonrpc(request)? {
-		Request::ReverseAuth(params) => handle_reverse_auth(&params.challenge)?
+		Request::ReverseAuth(params) => {
+			let result = controller.handle_reverse_auth(&params);
+			serde_json::to_value(result)
+		},
+		Request::Play => {
+			controller.handle_play();
+			serde_json::to_value("OK")
+		},
+		Request::Pause => {
+			controller.handle_pause();
+			serde_json::to_value("OK")
+		},
 	};
 	let response = jsonrpc::Response {
 		jsonrpc: "2.0",
 		id: request.id,
-		result: Some(result),
+		result: Some(result.map_err(Error::ResponseSerialization)?),
 		error: None,
 	};
 	Ok(response)
@@ -89,7 +145,7 @@ pub struct Connection<S>
 impl<S> Connection<S>
 	where S: AsTcpStream + Stream
 {
-	pub fn process_one(&mut self) -> Result<(), Error> {
+	pub fn process_one(&mut self, controller: &Controller) -> Result<(), Error> {
 		let message = self.client.recv_message()?;
 		let request = match message {
 			OwnedMessage::Text(ref msg) =>
@@ -97,7 +153,7 @@ impl<S> Connection<S>
 					.map_err(Error::RequestDeserialization)?,
 			_ => Err(Error::UnexpectedMessage(message))?,
 		};
-		let response = handle_request(&request)?;
+		let response = handle_request(controller, &request)?;
 		response.validate().map_err(Error::BadJsonrpcResponse);
 		let response_ser = serde_json::to_string(&response)
 			.map_err(Error::ResponseSerialization)?;
@@ -155,6 +211,7 @@ mod tests {
 
 	#[test]
 	fn test_connect_process_one() {
+		let controller = Controller::new("test");
 		let mut server = <WsServer<NoTlsAcceptor, TcpListener>>::bind("127.0.0.1:7357").unwrap();
 		let server_join_handle = thread::spawn(move || {
 			let mut server_conn = ServerConnection::accept(&mut server);
@@ -162,11 +219,17 @@ mod tests {
 				challenge: "476b76368dbd5028c2f371d2a7018e32".to_string(),
 			});
 			let result = server_conn.send_request(request).unwrap();
-			assert_eq!(result, Ok(Value::Null));
+			let expected = ReverseAuthResult { name: "test".to_string() };
+			assert_eq!(result, Ok(serde_json::to_value(&expected).unwrap()));
 		});
 
 		let mut conn = connect(&Url::parse("ws://127.0.0.1:7357").unwrap()).unwrap();
-		conn.process_one().unwrap();
+		conn.process_one(&controller).unwrap();
 		server_join_handle.join().unwrap();
+	}
+
+	#[test]
+	fn test_parse_null_params() {
+		serde_json::from_str::<()>("null").unwrap()
 	}
 }

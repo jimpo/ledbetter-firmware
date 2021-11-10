@@ -1,3 +1,4 @@
+mod config;
 mod control;
 mod error;
 mod jsonrpc;
@@ -5,31 +6,18 @@ mod ws2812b;
 
 use clap::{Arg, App};
 use gpio_cdev::{LineRequestFlags};
-use serde::{Deserialize};
 
 use std::{
-    fs::File,
+    fs,
     process,
     io::Read,
 };
 
 use crate::ws2812b::WS2812BWrite;
 use crate::error::Error;
-use crate::control::connect;
+use crate::config::Config;
+use crate::control::Controller;
 
-
-#[derive(Debug, Clone, Deserialize)]
-struct ControllerConfig {
-    host: String,
-    port: u16,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct Config {
-    gpio_label: String,
-    gpio_line: u32,
-    controller: ControllerConfig,
-}
 
 fn main_result(config: Config) -> Result<(), Error> {
     let mut chip = gpio_cdev::chips()?
@@ -42,12 +30,14 @@ fn main_result(config: Config) -> Result<(), Error> {
     let line_handle = line.request(LineRequestFlags::OUTPUT, 0, "ledbetter")?;
     line_handle.set_value(1)?;
 
+    let controller = Controller::new(&config.name);
+
     let mut url = websocket::client::Url::parse("ws://")
         .expect("static string ws:// is guaranteed to parse");
     url.set_host(Some(&config.controller.host))?;
     url.set_port(Some(config.controller.port))
         .unwrap();
-    connect(&url)?;
+    control::connect(&url)?;
     //let ws2812b = WS2812BWrite::new(line);
     //ChipIterator::
     // let mut chip = Chip::new("/dev/gpiochip0")?;
@@ -71,14 +61,7 @@ fn get_config() -> Config {
         .get_matches();
 
     let config_path = matches.value_of("config").expect("config is required");
-    let mut file = File::open(config_path)
-        .unwrap_or_else(|err| {
-            eprintln!("could not open config file {}: {}", config_path, err);
-            process::exit(1);
-        });
-
-    let mut contents = String::new();
-    let _ = file.read_to_string(&mut contents)
+    let contents = fs::read_to_string(config_path)
         .unwrap_or_else(|err| {
             eprintln!("could not read config file {}: {}", config_path, err);
             process::exit(1);
