@@ -1,5 +1,6 @@
 mod config;
 mod control;
+mod driver;
 mod error;
 mod jsonrpc;
 mod ws2812b;
@@ -10,13 +11,12 @@ use gpio_cdev::{LineRequestFlags};
 use std::{
     fs,
     process,
-    io::Read,
 };
 
-use crate::ws2812b::WS2812BWrite;
-use crate::error::Error;
 use crate::config::Config;
 use crate::control::Controller;
+use crate::driver::DriverImpl;
+use crate::error::Error;
 
 
 fn main_result(config: Config) -> Result<(), Error> {
@@ -30,7 +30,8 @@ fn main_result(config: Config) -> Result<(), Error> {
     let line_handle = line.request(LineRequestFlags::OUTPUT, 0, "ledbetter")?;
     line_handle.set_value(1)?;
 
-    let controller = Controller::new(&config.name);
+    let driver = DriverImpl::new(line, config.render_freq);
+    let controller = Controller::new(&config.name, driver);
 
     let mut url = websocket::client::Url::parse("ws://")
         .expect("static string ws:// is guaranteed to parse");

@@ -13,6 +13,7 @@ use websocket::{
 	sync::Client,
 };
 
+use crate::driver::{self, Driver};
 use crate::error::Error;
 use crate::jsonrpc;
 
@@ -70,14 +71,16 @@ impl Request {
 	}
 }
 
-pub struct Controller {
+pub struct Controller<D: Driver> {
 	driver_name: String,
+	driver: D,
 }
 
-impl Controller {
-	pub fn new<S: ToString>(driver_name: S) -> Self {
+impl<D: Driver> Controller<D> {
+	pub fn new<S: ToString>(driver_name: S, driver: D) -> Self {
 		Controller {
 			driver_name: driver_name.to_string(),
+			driver,
 		}
 	}
 
@@ -91,12 +94,12 @@ impl Controller {
 		}
 	}
 
-	pub fn handle_play(&self) {
-
+	pub fn handle_play(&mut self) -> driver::Status {
+		self.driver.play()
 	}
 
-	pub fn handle_pause(&self) {
-
+	pub fn handle_pause(&mut self) -> driver::Status {
+		self.driver.pause()
 	}
 }
 
@@ -104,7 +107,7 @@ fn parse_params<'a, T: Deserialize<'a>>(request: &'a jsonrpc::Request) -> Result
 	serde_json::from_str(request.params.get()).map_err(Error::RequestDeserialization)
 }
 
-fn handle_request<'a>(controller: &'a Controller, request: &'a jsonrpc::Request)
+fn handle_request<'a, D: Driver>(controller: &'a mut Controller<D>, request: &'a jsonrpc::Request)
 	-> Result<jsonrpc::Response<'a>, Error>
 {
 	let result = match Request::from_jsonrpc(request)? {
@@ -113,12 +116,12 @@ fn handle_request<'a>(controller: &'a Controller, request: &'a jsonrpc::Request)
 			serde_json::to_value(result)
 		},
 		Request::Play => {
-			controller.handle_play();
-			serde_json::to_value("OK")
+			let status = controller.handle_play();
+			serde_json::to_value(status)
 		},
 		Request::Pause => {
-			controller.handle_pause();
-			serde_json::to_value("OK")
+			let status = controller.handle_pause();
+			serde_json::to_value(status)
 		},
 	};
 	let response = jsonrpc::Response {
@@ -145,7 +148,7 @@ pub struct Connection<S>
 impl<S> Connection<S>
 	where S: AsTcpStream + Stream
 {
-	pub fn process_one(&mut self, controller: &Controller) -> Result<(), Error> {
+	pub fn process_one<D: Driver>(&mut self, controller: &mut Controller<D>) -> Result<(), Error> {
 		let message = self.client.recv_message()?;
 		let request = match message {
 			OwnedMessage::Text(ref msg) =>
@@ -168,6 +171,8 @@ mod tests {
 	use websocket::server::{WsServer, NoTlsAcceptor};
 	use std::net::TcpListener;
 	use std::thread;
+
+	use crate::driver::MockDriver;
 
 	struct ServerConnection {
 		client: Client<TcpStream>,
@@ -210,8 +215,9 @@ mod tests {
 	}
 
 	#[test]
-	fn test_connect_process_one() {
-		let controller = Controller::new("test");
+	fn test_connect_process_reverse_auth() {
+		let mock_driver = MockDriver::new();
+		let mut controller = Controller::new("test", mock_driver);
 		let mut server = <WsServer<NoTlsAcceptor, TcpListener>>::bind("127.0.0.1:7357").unwrap();
 		let server_join_handle = thread::spawn(move || {
 			let mut server_conn = ServerConnection::accept(&mut server);
@@ -224,7 +230,27 @@ mod tests {
 		});
 
 		let mut conn = connect(&Url::parse("ws://127.0.0.1:7357").unwrap()).unwrap();
-		conn.process_one(&controller).unwrap();
+		conn.process_one(&mut controller).unwrap();
+		server_join_handle.join().unwrap();
+	}
+
+	#[test]
+	fn test_connect_process_play() {
+		let mut mock_driver = MockDriver::new();
+		mock_driver.expect_play().return_const(driver::Status::Playing);
+
+		let mut controller = Controller::new("test", mock_driver);
+		let mut server = <WsServer<NoTlsAcceptor, TcpListener>>::bind("127.0.0.1:7357").unwrap();
+		let server_join_handle = thread::spawn(move || {
+			let mut server_conn = ServerConnection::accept(&mut server);
+			let request = Request::Play;
+			let result = server_conn.send_request(request).unwrap();
+			let expected = driver::Status::Playing;
+			assert_eq!(result, Ok(serde_json::to_value(&expected).unwrap()));
+		});
+
+		let mut conn = connect(&Url::parse("ws://127.0.0.1:7357").unwrap()).unwrap();
+		conn.process_one(&mut controller).unwrap();
 		server_join_handle.join().unwrap();
 	}
 
