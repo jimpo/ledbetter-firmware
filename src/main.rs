@@ -3,6 +3,7 @@ mod control;
 mod driver;
 mod error;
 mod jsonrpc;
+mod program;
 mod ws2812b;
 
 use clap::{Arg, App};

@@ -11,10 +11,13 @@ derive_more = "0.99.16"
 env_logger = "0.9.0"
 gpio-cdev = "0.5.0"
 log = "0.4.14"
+palette = "0.6.0"
 serde = { version = "1.0.130", features = ["derive"] }
 serde_json = { version = "1.0.69", features = ["raw_value"] }
 smart-leds-trait = "0.2.0"
 toml = "0.5.8"
+wasm3 = "0.3.1"
+wasm3-sys = "0.3.0"
 websocket = "0.26.2"
 
 [dev-dependencies]

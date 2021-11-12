@@ -24,6 +24,11 @@ pub enum Request {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RunParams {
+	pub wasm: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReverseAuthParams {
 	pub challenge: String,
 }

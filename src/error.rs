@@ -1,3 +1,4 @@
+use wasm3::error::Wasm3Error;
 use websocket::{WebSocketError, url::ParseError, OwnedMessage};
 
 use crate::jsonrpc;
@@ -10,6 +11,9 @@ pub enum Error {
 	GpioCdev(gpio_cdev::Error),
 	UrlParseError(ParseError),
 	WebSocketError(WebSocketError),
+	// Can't hold wasm3 error type directly because it is !Send
+	#[from(ignore)]
+	Wasm3(#[error(not(source))] String),
 	#[from(ignore)]
 	#[display(fmt = "Unexpected message from controller: {:?}", _0)]
 	UnexpectedMessage(#[error(not(source))] OwnedMessage),
@@ -28,4 +32,10 @@ pub enum Error {
 	BadJsonrpcRequest(jsonrpc::Error),
 	#[from(ignore)]
 	BadJsonrpcResponse(jsonrpc::Error),
+}
+
+impl From<wasm3::error::Error> for Error {
+	fn from(err: wasm3::error::Error) -> Self {
+		Error::Wasm3(err.to_string())
+	}
 }

@@ -7,6 +7,7 @@ use gpio_cdev::Line;
 use log;
 use serde::{Deserialize, Serialize};
 
+use crate::error::Error;
 use crate::ws2812b::WS2812BWrite;
 
 
@@ -24,14 +25,9 @@ pub enum CtrlAction {
 	Exit,
 }
 
-// #[derive(Debug, derive_more::Display, derive_more::Error)]
-// pub enum Error {
-// 	InvalidStatus(Status),
-// }
-
 #[cfg_attr(test, mockall::automock)]
 pub trait Driver {
-	fn start(&mut self) -> Status;
+	fn start(&mut self, wasm_bin: &[u8]) -> Status;
 	fn stop(&mut self) -> Status;
 	fn play(&mut self) -> Status;
 	fn pause(&mut self) -> Status;
@@ -40,7 +36,7 @@ pub trait Driver {
 pub struct DriverImpl {
 	gpio_line: Line,
 	render_freq: usize,
-	thread_handle: Option<thread::JoinHandle<()>>,
+	thread_handle: Option<thread::JoinHandle<Result<(), Error>>>,
 	ctrl_sender: Option<mpsc::SyncSender<CtrlAction>>,
 	status: Status,
 }
@@ -58,14 +54,13 @@ impl DriverImpl {
 }
 
 impl Driver for DriverImpl {
-	fn start(&mut self) -> Status {
+	fn start(&mut self, wasm_bin: &[u8]) -> Status {
 		if let None = self.thread_handle {
 			let (sender, receiver) = mpsc::sync_channel(1);
 			let line = self.gpio_line.clone();
 			let render_period = Duration::from_millis((1000 / self.render_freq) as u64);
-			self.thread_handle = thread::spawn(move || {
-				run_driver(line, render_period, receiver)
-			}).into();
+			self.thread_handle = thread::spawn(move || run_driver(line, render_period, receiver))
+				.into();
 			self.ctrl_sender = Some(sender);
 			self.status = Status::Playing;
 		}
@@ -109,10 +104,14 @@ impl Driver for DriverImpl {
 	}
 }
 
-fn run_driver(line: Line, render_period: Duration, ctrl_receiver: Receiver<CtrlAction>) {
+fn run_driver(line: Line, render_period: Duration, ctrl_receiver: Receiver<CtrlAction>)
+	-> Result<(), Error>
+{
 	let ws2812b = WS2812BWrite::new(line);
-	let mut playing = true;
+	let mut playing = false;
 	let mut render_at = Instant::now();
+	//let runtime = create_runtime()?;
+	//let module = create_wasm_module(&runtime, vec![]);
 
 	loop {
 		let timeout = render_at.saturating_duration_since(Instant::now());
@@ -122,7 +121,7 @@ fn run_driver(line: Line, render_period: Duration, ctrl_receiver: Receiver<CtrlA
 			Ok(CtrlAction::Exit) => break,
 			Err(mpsc::RecvTimeoutError::Disconnected) => {
 				log::warn!("Driver control channel unexpectedly disconnected");
-				return;
+				break;
 			},
 			Err(mpsc::RecvTimeoutError::Timeout) => {
 				if playing {
@@ -132,6 +131,7 @@ fn run_driver(line: Line, render_period: Duration, ctrl_receiver: Receiver<CtrlA
 			},
 		}
 	}
+	Ok(())
 }
 
 #[cfg(test)]
