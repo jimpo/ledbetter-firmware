@@ -18,4 +18,5 @@ pub struct Config {
 	pub gpio_line: u32,
 	pub render_freq: usize,
 	pub controller: ControllerConfig,
+	pub layout: LayoutConfig,
 }

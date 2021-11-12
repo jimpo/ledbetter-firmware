@@ -7,8 +7,11 @@ use gpio_cdev::Line;
 use log;
 use serde::{Deserialize, Serialize};
 
+use crate::config::LayoutConfig;
 use crate::error::Error;
 use crate::ws2812b::WS2812BWrite;
+use crate::program::{TrivialProgram, Program, leds_iter};
+use smart_leds_trait::SmartLedsWrite;
 
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
@@ -36,16 +39,18 @@ pub trait Driver {
 pub struct DriverImpl {
 	gpio_line: Line,
 	render_freq: usize,
+	layout: LayoutConfig,
 	thread_handle: Option<thread::JoinHandle<Result<(), Error>>>,
 	ctrl_sender: Option<mpsc::SyncSender<CtrlAction>>,
 	status: Status,
 }
 
 impl DriverImpl {
-	pub fn new(gpio_line: Line, render_freq: usize) -> Self {
+	pub fn new(gpio_line: Line, render_freq: usize, layout: LayoutConfig) -> Self {
 		DriverImpl {
 			gpio_line,
 			render_freq,
+			layout,
 			thread_handle: None,
 			ctrl_sender: None,
 			status: Status::NotPlaying,
@@ -59,8 +64,10 @@ impl Driver for DriverImpl {
 			let (sender, receiver) = mpsc::sync_channel(1);
 			let line = self.gpio_line.clone();
 			let render_period = Duration::from_millis((1000 / self.render_freq) as u64);
-			self.thread_handle = thread::spawn(move || run_driver(line, render_period, receiver))
-				.into();
+			let layout_clone = self.layout.clone();
+			self.thread_handle = thread::spawn(move ||
+				run_driver(line, render_period, receiver, layout_clone)
+			).into();
 			self.ctrl_sender = Some(sender);
 			self.status = Status::Playing;
 		}
@@ -104,14 +111,18 @@ impl Driver for DriverImpl {
 	}
 }
 
-fn run_driver(line: Line, render_period: Duration, ctrl_receiver: Receiver<CtrlAction>)
+fn run_driver(
+	line: Line,
+	render_period: Duration,
+	ctrl_receiver: Receiver<CtrlAction>,
+	layout: LayoutConfig,
+)
 	-> Result<(), Error>
 {
-	let ws2812b = WS2812BWrite::new(line);
+	let mut ws2812b = WS2812BWrite::new(line);
 	let mut playing = false;
 	let mut render_at = Instant::now();
-	//let runtime = create_runtime()?;
-	//let module = create_wasm_module(&runtime, vec![]);
+	let mut program = TrivialProgram::new(layout);
 
 	loop {
 		let timeout = render_at.saturating_duration_since(Instant::now());
@@ -125,7 +136,8 @@ fn run_driver(line: Line, render_period: Duration, ctrl_receiver: Receiver<CtrlA
 			},
 			Err(mpsc::RecvTimeoutError::Timeout) => {
 				if playing {
-					// Do stuff
+					program.tick()?;
+					ws2812b.write(leds_iter(&program))?;
 				}
 				render_at += render_period;
 			},

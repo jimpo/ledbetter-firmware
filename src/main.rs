@@ -4,6 +4,7 @@ mod driver;
 mod error;
 mod jsonrpc;
 mod program;
+mod wasm_program;
 mod ws2812b;
 
 use clap::{Arg, App};
@@ -31,7 +32,7 @@ fn main_result(config: Config) -> Result<(), Error> {
     let line_handle = line.request(LineRequestFlags::OUTPUT, 0, "ledbetter")?;
     line_handle.set_value(1)?;
 
-    let driver = DriverImpl::new(line, config.render_freq);
+    let driver = DriverImpl::new(line, config.render_freq, config.layout);
     let controller = Controller::new(&config.name, driver);
 
     let mut url = websocket::client::Url::parse("ws://")
