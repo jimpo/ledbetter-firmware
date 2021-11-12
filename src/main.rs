@@ -13,12 +13,14 @@ use gpio_cdev::{LineRequestFlags};
 use std::{
     fs,
     process,
+    thread,
 };
 
 use crate::config::Config;
 use crate::control::Controller;
-use crate::driver::DriverImpl;
+use crate::driver::{Driver, DriverImpl};
 use crate::error::Error;
+use std::time::Duration;
 
 
 fn main_result(config: Config) -> Result<(), Error> {
@@ -32,20 +34,18 @@ fn main_result(config: Config) -> Result<(), Error> {
     let line_handle = line.request(LineRequestFlags::OUTPUT, 0, "ledbetter")?;
     line_handle.set_value(1)?;
 
-    let driver = DriverImpl::new(line, config.render_freq, config.layout);
-    let controller = Controller::new(&config.name, driver);
+    let mut driver = DriverImpl::new(line, config.render_freq, config.layout);
+    //let controller = Controller::new(&config.name, driver);
+    driver.start(&[]);
+    thread::sleep(Duration::from_secs(60));
 
-    let mut url = websocket::client::Url::parse("ws://")
-        .expect("static string ws:// is guaranteed to parse");
-    url.set_host(Some(&config.controller.host))?;
-    url.set_port(Some(config.controller.port))
-        .unwrap();
-    control::connect(&url)?;
-    //let ws2812b = WS2812BWrite::new(line);
-    //ChipIterator::
-    // let mut chip = Chip::new("/dev/gpiochip0")?;
-    // let line = chip.get_line(0)?;
-    // WS2812BWrite::new(line);
+    // let mut url = websocket::client::Url::parse("ws://")
+    //     .expect("static string ws:// is guaranteed to parse");
+    // url.set_host(Some(&config.controller.host))?;
+    // url.set_port(Some(config.controller.port))
+    //     .unwrap();
+    // control::connect(&url)?;
+
     Ok(())
 }
 
