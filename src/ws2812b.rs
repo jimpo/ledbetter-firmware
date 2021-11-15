@@ -6,6 +6,8 @@ use std::{
 };
 
 use crate::error::Error;
+use std::time::Instant;
+use std::cell::RefCell;
 
 const T0H_NS: u32 = 400;
 const T0L_NS: u32 = 850;
@@ -14,6 +16,7 @@ const T1L_NS: u32 = 400;
 const RESET_NS: u32 = 50 * 1000;
 
 
+#[derive(Debug, Clone)]
 pub struct WS2812BWrite {
 	line: Line,
 	clk_freq: u32,

@@ -10,7 +10,6 @@ pub type PixelVal = Rgb<Srgb, u8>;
 pub trait Program {
 	fn pixels(&self) -> &Vec<Vec<PixelVal>>;
 	fn tick(&mut self) -> Result<(), Error>;
-
 }
 
 pub struct TrivialProgram {

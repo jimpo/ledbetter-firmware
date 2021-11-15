@@ -7,6 +7,7 @@ mod program;
 mod wasm_program;
 mod ws2812b;
 
+use env_logger::Env;
 use clap::{Arg, App};
 use gpio_cdev::{LineRequestFlags};
 
@@ -21,6 +22,8 @@ use crate::control::Controller;
 use crate::driver::{Driver, DriverImpl};
 use crate::error::Error;
 use std::time::Duration;
+use crate::ws2812b::WS2812BWrite;
+use smart_leds_trait::{SmartLedsWrite, RGB8};
 
 
 fn main_result(config: Config) -> Result<(), Error> {
@@ -31,13 +34,12 @@ fn main_result(config: Config) -> Result<(), Error> {
     log::info!("Found GPIO cdev with label {} mapped to {}", config.gpio_label, chip.name());
 
     let line = chip.get_line(config.gpio_line)?;
-    let line_handle = line.request(LineRequestFlags::OUTPUT, 0, "ledbetter")?;
-    line_handle.set_value(1)?;
-
-    let mut driver = DriverImpl::new(line, config.render_freq, config.layout);
+    let mut ws2812b = WS2812BWrite::new(line);
+    ws2812b.write(vec![RGB8::new(255, 0, 0); 5].into_iter())?;
+    //let mut driver = DriverImpl::new(ws2812b, config.render_freq, config.layout);
     //let controller = Controller::new(&config.name, driver);
-    driver.start(&[]);
-    thread::sleep(Duration::from_secs(60));
+    //driver.start(&[]);
+    //thread::sleep(Duration::from_secs(60));
 
     // let mut url = websocket::client::Url::parse("ws://")
     //     .expect("static string ws:// is guaranteed to parse");
@@ -79,7 +81,7 @@ fn get_config() -> Config {
 }
 
 fn main() {
-    env_logger::init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let config = get_config();
     main_result(config)
         .unwrap_or_else(|err| panic!("{}", err))
