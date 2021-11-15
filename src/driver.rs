@@ -10,7 +10,7 @@ use smart_leds_trait::{SmartLedsWrite, RGB8};
 
 use crate::config::LayoutConfig;
 use crate::error::Error;
-use crate::ws2812b::WS2812BWrite;
+use crate::ws2812b_bitbang::WS2812BGpioBitbangWrite;
 use crate::program::{TrivialProgram, Program, leds_iter};
 
 

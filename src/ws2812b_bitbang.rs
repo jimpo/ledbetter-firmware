@@ -16,18 +16,35 @@ const T1L_NS: u32 = 400;
 const RESET_NS: u32 = 50 * 1000;
 
 
+fn find_line_from_label_and_offset(label: &str, line_offset: u32) -> Result<Line, Error> {
+	let mut chip = gpio_cdev::chips()?
+		.flat_map(|chip_result| chip_result.ok())
+		.find(|chip| chip.label() == label)
+		.ok_or_else(|| Error::GpioCdevNotFound { label: label.to_string() })?;
+	log::info!("Found GPIO cdev with label {} mapped to {}", label, chip.name());
+
+	let line = chip.get_line(line_offset)?;
+	Ok(line)
+}
+
 #[derive(Debug, Clone)]
-pub struct WS2812BWrite {
+pub struct WS2812BGpioBitbangWrite {
 	line: Line,
 	clk_freq: u32,
 }
 
-impl WS2812BWrite {
+// This is too slow to actually work
+impl WS2812BGpioBitbangWrite {
 	pub fn new(line: Line) -> Self {
-		WS2812BWrite {
+		WS2812BGpioBitbangWrite {
 			line,
 			clk_freq: 1_000_000_000,
 		}
+	}
+
+	pub fn from_label_and_line_offset(label: &str, line_offset: u32) -> Result<Self, Error> {
+		let line = find_line_from_label_and_offset(label, line_offset)?;
+		Ok(Self::new(line))
 	}
 }
 
@@ -77,7 +94,7 @@ impl WS2812BWriteSession {
 	}
 }
 
-impl SmartLedsWrite for WS2812BWrite {
+impl SmartLedsWrite for WS2812BGpioBitbangWrite {
 	type Error = Error;
 	type Color = RGB8;
 

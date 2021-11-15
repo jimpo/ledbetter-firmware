@@ -5,7 +5,9 @@ mod error;
 mod jsonrpc;
 mod program;
 mod wasm_program;
-mod ws2812b;
+mod ws2812b_bitbang;
+mod ws2812b_rpi;
+use smart_leds_trait::{SmartLedsWrite, RGB8};
 
 use env_logger::Env;
 use clap::{Arg, App};
@@ -21,21 +23,12 @@ use crate::config::Config;
 use crate::control::Controller;
 use crate::driver::{Driver, DriverImpl};
 use crate::error::Error;
-use std::time::Duration;
-use crate::ws2812b::WS2812BWrite;
-use smart_leds_trait::{SmartLedsWrite, RGB8};
+use crate::ws2812b_rpi::WS2812BRpiWrite;
 
 
 fn main_result(config: Config) -> Result<(), Error> {
-    let mut chip = gpio_cdev::chips()?
-        .flat_map(|chip_result| chip_result.ok())
-        .find(|chip| chip.label() == config.gpio_label)
-        .ok_or_else(|| Error::GpioCdevNotFound { label: config.gpio_label.clone() })?;
-    log::info!("Found GPIO cdev with label {} mapped to {}", config.gpio_label, chip.name());
-
-    let line = chip.get_line(config.gpio_line)?;
-    let mut ws2812b = WS2812BWrite::new(line);
-    ws2812b.write(vec![RGB8::new(255, 0, 0); 5].into_iter())?;
+    let mut ws2812b = WS2812BRpiWrite::new(config.gpio_lines.iter().cloned(), &config.layout)?;
+    ws2812b.write(vec![RGB8::new(255, 0, 0); 10].into_iter())?;
     //let mut driver = DriverImpl::new(ws2812b, config.render_freq, config.layout);
     //let controller = Controller::new(&config.name, driver);
     //driver.start(&[]);

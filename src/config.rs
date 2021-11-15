@@ -15,7 +15,7 @@ pub struct LayoutConfig {
 pub struct Config {
 	pub name: String,
 	pub gpio_label: String,
-	pub gpio_line: u32,
+	pub gpio_lines: Vec<u32>,
 	pub render_freq: usize,
 	pub controller: ControllerConfig,
 	pub layout: LayoutConfig,
