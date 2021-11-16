@@ -1,9 +1,8 @@
 use std::{
 	thread,
 	time::{Instant, Duration},
-	sync::mpsc::{self, Receiver},
+	sync::{Arc, mpsc::{self, Receiver}},
 };
-use gpio_cdev::Line;
 use log;
 use serde::{Deserialize, Serialize};
 use smart_leds_trait::{SmartLedsWrite, RGB8};
@@ -36,21 +35,29 @@ pub trait Driver {
 	fn pause(&mut self) -> Status;
 }
 
-pub struct DriverImpl<SLW: SmartLedsWrite<Error=Error, Color=RGB8>> {
-	led_write: SLW,
+pub struct DriverImpl<SLW, SLWF>
+	where
+		SLW: SmartLedsWrite<Error=Error, Color=RGB8>,
+		SLWF: Fn(&LayoutConfig) -> Result<SLW, Error>,
+{
+	led_write_factory: Arc<SLWF>,
 	render_freq: usize,
-	layout: LayoutConfig,
+	layout: Arc<LayoutConfig>,
 	thread_handle: Option<thread::JoinHandle<Result<(), Error>>>,
 	ctrl_sender: Option<mpsc::SyncSender<CtrlAction>>,
 	status: Status,
 }
 
-impl<SLW: SmartLedsWrite<Error=Error, Color=RGB8>> DriverImpl<SLW> {
-	pub fn new(led_write: SLW, render_freq: usize, layout: LayoutConfig) -> Self {
+impl<SLW, SLWF> DriverImpl<SLW, SLWF>
+	where
+		SLW: SmartLedsWrite<Error=Error, Color=RGB8>,
+		SLWF: Fn(&LayoutConfig) -> Result<SLW, Error>,
+{
+	pub fn new(led_write_factory: SLWF, render_freq: usize, layout: LayoutConfig) -> Self {
 		DriverImpl {
-			led_write,
+			led_write_factory: Arc::new(led_write_factory),
 			render_freq,
-			layout,
+			layout: Arc::new(layout),
 			thread_handle: None,
 			ctrl_sender: None,
 			status: Status::NotPlaying,
@@ -58,18 +65,20 @@ impl<SLW: SmartLedsWrite<Error=Error, Color=RGB8>> DriverImpl<SLW> {
 	}
 }
 
-impl<SLW> Driver for DriverImpl<SLW>
-	where SLW: SmartLedsWrite<Error=Error, Color=RGB8> + Clone + Send + 'static
+impl<SLW, SLWF> Driver for DriverImpl<SLW, SLWF>
+	where
+		SLW: SmartLedsWrite<Error=Error, Color=RGB8>,
+		SLWF: (Fn(&LayoutConfig) -> Result<SLW, Error>) + Send + Sync + 'static,
 {
 	fn start(&mut self, wasm_bin: &[u8]) -> Status {
 		if let None = self.thread_handle {
 			let (sender, receiver) = mpsc::sync_channel(1);
-			let led_write = self.led_write.clone();
+			let led_write_factory = self.led_write_factory.clone();
 			let render_period = Duration::from_millis((1000 / self.render_freq) as u64);
 			let layout_clone = self.layout.clone();
-			self.thread_handle = thread::spawn(move ||
-				run_driver(led_write, render_period, receiver, layout_clone)
-			).into();
+			self.thread_handle = thread::spawn(move || {
+				run_driver(&*led_write_factory, render_period, receiver, &*layout_clone)
+			}).into();
 			self.ctrl_sender = Some(sender);
 			self.play();
 		}
@@ -113,14 +122,17 @@ impl<SLW> Driver for DriverImpl<SLW>
 	}
 }
 
-fn run_driver<SLW: SmartLedsWrite<Error=Error, Color=RGB8> + Clone>(
-	mut led_write: SLW,
+fn run_driver<SLW, SLWF>(
+	led_write_factory: &SLWF,
 	render_period: Duration,
 	ctrl_receiver: Receiver<CtrlAction>,
-	layout: LayoutConfig,
-)
-	-> Result<(), Error>
+	layout: &LayoutConfig,
+) -> Result<(), Error>
+	where
+		SLW: SmartLedsWrite<Error=Error, Color=RGB8>,
+		SLWF: Fn(&LayoutConfig) -> Result<SLW, Error>,
 {
+	let mut led_write = led_write_factory(layout)?;
 	let mut playing = false;
 	let mut render_at = Instant::now();
 	let mut program = TrivialProgram::new(layout);
@@ -203,7 +215,10 @@ mod tests {
 		led_write.expect_write()
 			.returning(|_| Ok(()));
 
-		let mut driver = DriverImpl::new(MockSmartLedsWriteRef::new(led_write), 1000, layout);
+		let led_write_ref = MockSmartLedsWriteRef::new(led_write);
+		let led_write_factory = move |layout: &LayoutConfig| Ok(led_write_ref.clone());
+
+		let mut driver = DriverImpl::new(led_write_factory, 1000, layout);
 		assert_eq!(driver.start(&[]), Status::Playing);
 		thread::sleep(Duration::from_millis(10));
 		assert_eq!(driver.stop(), Status::NotPlaying);

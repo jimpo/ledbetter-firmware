@@ -4,7 +4,11 @@ use websocket::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::{Value, RawValue};
-use std::borrow::Cow;
+use std::{
+	borrow::Cow,
+	time::Duration,
+	thread,
+};
 use websocket::{
 	stream::{
 		sync::{AsTcpStream, TcpStream},
@@ -138,12 +142,6 @@ fn handle_request<'a, D: Driver>(controller: &'a mut Controller<D>, request: &'a
 	Ok(response)
 }
 
-pub fn connect(url: &Url) -> Result<Connection<TcpStream>, Error> {
-	let client = websocket::ClientBuilder::from_url(&url)
-		.connect_insecure()?;
-	Ok(Connection { client })
-}
-
 pub struct Connection<S>
 	where S: AsTcpStream + Stream
 {
@@ -167,6 +165,36 @@ impl<S> Connection<S>
 			.map_err(Error::ResponseSerialization)?;
 		self.client.send_message(&OwnedMessage::Text(response_ser))?;
 		Ok(())
+	}
+}
+
+pub fn connect(url: &Url) -> Result<Connection<TcpStream>, Error> {
+	let client = websocket::ClientBuilder::from_url(&url)
+		.connect_insecure()?;
+	Ok(Connection { client })
+}
+
+pub fn connect_and_process_until_error<D: Driver>(url: &Url, controller: &mut Controller<D>)
+	-> Result<(), Error>
+{
+	let mut connection = connect(url)?;
+	loop {
+		connection.process_one(controller)?;
+	}
+	Ok(())
+}
+
+pub fn connect_and_process_with_reconnects<D: Driver>(url: &Url, controller: &mut Controller<D>) {
+	let retry_time = Duration::from_secs(5);
+	loop {
+		match connect_and_process_until_error(url, controller) {
+			Ok(()) => break,
+			Err(err) => {
+				log::error!("{}", err);
+				log::info!("Reconnecting in {} seconds", retry_time.as_secs());
+				thread::sleep(retry_time);
+			}
+		}
 	}
 }
 

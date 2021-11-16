@@ -17,7 +17,7 @@ pub struct TrivialProgram {
 }
 
 impl TrivialProgram {
-	pub fn new(layout: LayoutConfig) -> Self {
+	pub fn new(layout: &LayoutConfig) -> Self {
 		let pixels = layout.pixel_locations.iter()
 			.map(|strip_locations| vec![PixelVal::new(255, 255, 255); strip_locations.len()])
 			.collect::<Vec<_>>();

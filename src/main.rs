@@ -11,7 +11,7 @@ use smart_leds_trait::{SmartLedsWrite, RGB8};
 
 use env_logger::Env;
 use clap::{Arg, App};
-use gpio_cdev::{LineRequestFlags};
+use websocket::url::{ParseError, Url};
 
 use std::{
     fs,
@@ -19,27 +19,34 @@ use std::{
     thread,
 };
 
-use crate::config::Config;
-use crate::control::Controller;
+use crate::config::{Config, LayoutConfig};
+use crate::control::{connect_and_process_with_reconnects, Controller};
 use crate::driver::{Driver, DriverImpl};
 use crate::error::Error;
 use crate::ws2812b_rpi::WS2812BRpiWrite;
 
 
-fn main_result(config: Config) -> Result<(), Error> {
-    let mut ws2812b = WS2812BRpiWrite::new(config.gpio_lines.iter().cloned(), &config.layout)?;
-    ws2812b.write(vec![RGB8::new(255, 0, 0); 10].into_iter())?;
-    //let mut driver = DriverImpl::new(ws2812b, config.render_freq, config.layout);
-    //let controller = Controller::new(&config.name, driver);
-    //driver.start(&[]);
-    //thread::sleep(Duration::from_secs(60));
+fn get_controller_ws_url(config: &Config) -> Result<Url, Error> {
+    let mut url = websocket::client::Url::parse("ws://{}:{}")
+        .expect("static string ws:// is guaranteed to parse");
+    url.set_host(Some(&config.controller.host))?;
+    url.set_port(Some(config.controller.port))
+        .map_err(|_| ParseError::InvalidPort)?;
+    Ok(url)
+}
 
-    // let mut url = websocket::client::Url::parse("ws://")
-    //     .expect("static string ws:// is guaranteed to parse");
-    // url.set_host(Some(&config.controller.host))?;
-    // url.set_port(Some(config.controller.port))
-    //     .unwrap();
-    // control::connect(&url)?;
+fn main_result(config: Config) -> Result<(), Error> {
+    let gpio_lines = config.gpio_lines.clone();
+    let ws2812b_factory = move |layout: &LayoutConfig| {
+        WS2812BRpiWrite::new(gpio_lines.iter().cloned(), layout)
+    };
+    // Try out constructor once here where we can fail fast
+    let _ = ws2812b_factory(&config.layout)?;
+    let driver = DriverImpl::new(ws2812b_factory, config.render_freq, config.layout.clone());
+    let mut controller = Controller::new(&config.name, driver);
+
+    let url = get_controller_ws_url(&config)?;
+    connect_and_process_with_reconnects(&url, &mut controller);
 
     Ok(())
 }

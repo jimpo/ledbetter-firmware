@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use crate::config::LayoutConfig;
 use crate::error::Error;
 
+#[derive(Debug, Clone)]
 pub struct WS2812BRpiWrite {
 	controller: Controller,
 }
@@ -57,7 +58,7 @@ impl SmartLedsWrite for WS2812BRpiWrite {
 			for value in self.controller.leds_mut(channel).iter_mut() {
 				if let Some(color) = iter.next() {
 					let color = color.into();
-					*value = [color.r, color.g, color.b, 0];
+					*value = [color.b, color.g, color.r, 0];
 				} else {
 					log::error!("Not enough values in color iterator");
 					break;

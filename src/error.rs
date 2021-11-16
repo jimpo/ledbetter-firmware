@@ -1,4 +1,3 @@
-use wasm3::error::Wasm3Error;
 use websocket::{WebSocketError, url::ParseError, OwnedMessage};
 
 use crate::jsonrpc;

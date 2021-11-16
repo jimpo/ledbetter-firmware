@@ -19,7 +19,7 @@ wasm3::make_func_wrapper!(
 
 
 pub fn create_runtime() -> Result<Runtime, Error> {
-	let wasm_env = wasm3::Environment::new()?;
+	let wasm_env = Environment::new()?;
 	let runtime = wasm_env.create_runtime(STACK_SIZE)?;
 	Ok((runtime))
 }
@@ -43,7 +43,7 @@ fn make_pixels_array(layout: &LayoutConfig) -> Vec<Vec<PixelVal>> {
 
 impl<'a> WasmProgram<'a> {
 	pub fn new(layout: LayoutConfig, runtime: &'a Runtime, wasm_bin: Vec<u8>)
-			   -> Result<Self, Error>
+		-> Result<Self, Error>
 	{
 		let mut module = runtime.parse_and_load_module(wasm_bin)?;
 
@@ -148,5 +148,15 @@ mod tests {
 		let layout = layout_config();
 		let runtime = create_runtime().unwrap();
 		assert!(WasmProgram::new(layout, &runtime, TEST_PROGRAM.to_vec()).is_ok());
+	}
+
+	#[test]
+	fn test_tick_and_render() {
+		let layout = layout_config();
+		let runtime = create_runtime().unwrap();
+		let mut program = WasmProgram::new(layout, &runtime, TEST_PROGRAM.to_vec()).unwrap();
+		assert_eq!(program.pixels(), &vec![vec![PixelVal::new(0, 0, 0); 150]; 2]);
+		program.tick().unwrap();
+		assert_eq!(program.pixels(), &vec![vec![PixelVal::new(255, 0, 0); 150]; 2]);
 	}
 }
