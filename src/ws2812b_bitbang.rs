@@ -6,8 +6,6 @@ use std::{
 };
 
 use crate::error::Error;
-use std::time::Instant;
-use std::cell::RefCell;
 
 const T0H_NS: u32 = 400;
 const T0L_NS: u32 = 850;

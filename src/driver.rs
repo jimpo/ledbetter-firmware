@@ -9,8 +9,8 @@ use smart_leds_trait::{SmartLedsWrite, RGB8};
 
 use crate::config::LayoutConfig;
 use crate::error::Error;
-use crate::ws2812b_bitbang::WS2812BGpioBitbangWrite;
-use crate::program::{TrivialProgram, Program, leds_iter};
+use crate::program::{Program, leds_iter};
+use crate::wasm_program::{WasmProgram, create_runtime};
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -29,7 +29,7 @@ pub enum CtrlAction {
 
 #[cfg_attr(test, mockall::automock)]
 pub trait Driver {
-	fn start(&mut self, wasm_bin: &[u8]) -> Status;
+	fn start(&mut self, wasm_bin: Vec<u8>) -> Status;
 	fn stop(&mut self) -> Status;
 	fn play(&mut self) -> Status;
 	fn pause(&mut self) -> Status;
@@ -70,14 +70,15 @@ impl<SLW, SLWF> Driver for DriverImpl<SLW, SLWF>
 		SLW: SmartLedsWrite<Error=Error, Color=RGB8>,
 		SLWF: (Fn(&LayoutConfig) -> Result<SLW, Error>) + Send + Sync + 'static,
 {
-	fn start(&mut self, wasm_bin: &[u8]) -> Status {
+	fn start(&mut self, wasm_bin: Vec<u8>) -> Status {
 		if let None = self.thread_handle {
 			let (sender, receiver) = mpsc::sync_channel(1);
 			let led_write_factory = self.led_write_factory.clone();
 			let render_period = Duration::from_millis((1000 / self.render_freq) as u64);
 			let layout_clone = self.layout.clone();
+			let wasm_bin = wasm_bin.clone();
 			self.thread_handle = thread::spawn(move || {
-				run_driver(&*led_write_factory, render_period, receiver, &*layout_clone)
+				run_driver(&*led_write_factory, render_period, receiver, wasm_bin, &*layout_clone)
 			}).into();
 			self.ctrl_sender = Some(sender);
 			self.play();
@@ -126,6 +127,7 @@ fn run_driver<SLW, SLWF>(
 	led_write_factory: &SLWF,
 	render_period: Duration,
 	ctrl_receiver: Receiver<CtrlAction>,
+	wasm_bin: Vec<u8>,
 	layout: &LayoutConfig,
 ) -> Result<(), Error>
 	where
@@ -135,7 +137,8 @@ fn run_driver<SLW, SLWF>(
 	let mut led_write = led_write_factory(layout)?;
 	let mut playing = false;
 	let mut render_at = Instant::now();
-	let mut program = TrivialProgram::new(layout);
+	let runtime = create_runtime()?;
+	let mut program = WasmProgram::new(layout, &runtime, wasm_bin)?;
 
 	loop {
 		let timeout = render_at.saturating_duration_since(Instant::now());
@@ -166,7 +169,6 @@ mod tests {
 	use mockall::mock;
 	use serde_json::value::Value;
 	use std::sync::{Arc, Mutex};
-
 
 	fn layout_config() -> LayoutConfig {
 		let ys = (0..150).map(|i| (i as f32) / 60.0).collect::<Vec<_>>();
@@ -219,7 +221,7 @@ mod tests {
 		let led_write_factory = move |layout: &LayoutConfig| Ok(led_write_ref.clone());
 
 		let mut driver = DriverImpl::new(led_write_factory, 1000, layout);
-		assert_eq!(driver.start(&[]), Status::Playing);
+		assert_eq!(driver.start(vec![]), Status::Playing);
 		thread::sleep(Duration::from_millis(10));
 		assert_eq!(driver.stop(), Status::NotPlaying);
 	}

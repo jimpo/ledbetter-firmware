@@ -1,4 +1,4 @@
-use rs_ws281x::{ChannelBuilder, Controller, ControllerBuilder, RawColor, StripType};
+use rs_ws281x::{ChannelBuilder, Controller, ControllerBuilder, StripType};
 use smart_leds_trait::{SmartLedsWrite, RGB8};
 use std::time::{Duration, Instant};
 

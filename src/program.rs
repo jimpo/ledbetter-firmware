@@ -17,6 +17,7 @@ pub struct TrivialProgram {
 }
 
 impl TrivialProgram {
+	#[allow(dead_code)]
 	pub fn new(layout: &LayoutConfig) -> Self {
 		let pixels = layout.pixel_locations.iter()
 			.map(|strip_locations| vec![PixelVal::new(255, 255, 255); strip_locations.len()])

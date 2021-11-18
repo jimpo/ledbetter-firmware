@@ -11,6 +11,8 @@ pub enum Error {
 	UrlParseError(ParseError),
 	WebSocketError(WebSocketError),
 	RpiWS2111x(rs_ws281x::WS2811Error),
+	#[cfg(feature = "term_display")]
+	TerminalOutput(std::io::Error),
 	// Can't hold wasm3 error type directly because it is !Send
 	#[from(ignore)]
 	Wasm3(#[error(not(source))] String),

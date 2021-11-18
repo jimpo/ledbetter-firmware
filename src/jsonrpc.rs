@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use serde::{Deserialize, Serialize, Deserializer};
-use serde_json::Value;
+use serde_json::value::{RawValue, Value};
 
 #[derive(Debug, Clone, derive_more::Display, derive_more::Error)]
 pub enum Error {
@@ -13,9 +13,9 @@ pub enum Error {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Request<'a> {
 	pub jsonrpc: &'a str,
-	pub id: u32,
+	pub id: Cow<'a, RawValue>,
 	pub method: &'a str,
-	pub params: Cow<'a, serde_json::value::RawValue>,
+	pub params: Cow<'a, RawValue>,
 }
 
 impl<'a> Request<'a> {
@@ -27,24 +27,26 @@ impl<'a> Request<'a> {
 	}
 }
 
-fn deserialize_optional_value<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+fn deserialize_optional_value<'de, D>(deserializer: D)
+	-> Result<Option<Cow<'de, RawValue>>, D::Error>
 	where D: Deserializer<'de>
 {
-	Value::deserialize(deserializer).map(Some)
+	let raw_value = <&'de RawValue>::deserialize(deserializer)?;
+	Ok(Some(Cow::Borrowed(raw_value)))
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Response<'a> {
 	pub jsonrpc: &'a str,
-	pub id: u32,
+	pub id: Cow<'a, RawValue>,
 	#[serde(default)]
 	#[serde(skip_serializing_if = "Option::is_none")]
 	#[serde(deserialize_with = "deserialize_optional_value")]
-	pub result: Option<Value>,
+	pub result: Option<Cow<'a, RawValue>>,
 	#[serde(default)]
 	#[serde(skip_serializing_if = "Option::is_none")]
 	#[serde(deserialize_with = "deserialize_optional_value")]
-	pub error: Option<Value>,
+	pub error: Option<Cow<'a, RawValue>>,
 }
 
 impl<'a> Response<'a> {

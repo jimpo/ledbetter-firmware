@@ -3,7 +3,7 @@ use websocket::{
 	OwnedMessage,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::value::{Value, RawValue};
+use serde_json::value::{RawValue, to_raw_value};
 use std::{
 	borrow::Cow,
 	time::Duration,
@@ -58,21 +58,21 @@ impl Request {
 		}
 	}
 
+	#[allow(dead_code)]
 	pub fn to_jsonrpc(&self, id: u32) -> Result<jsonrpc::Request, Error> {
-		let (method, params_ser_result) = match self {
+		let (method, params_result) = match self {
 			Request::ReverseAuth(params) =>
-				("reverse_auth", serde_json::to_string(params)),
+				("reverse_auth", to_raw_value(params)),
 			Request::Play =>
-				("play", serde_json::to_string(&())),
+				("play", to_raw_value(&())),
 			Request::Pause =>
-				("pause", serde_json::to_string(&())),
+				("pause", to_raw_value(&())),
 		};
-		let params_ser = params_ser_result.map_err(Error::RequestSerialization)?;
-		let params = RawValue::from_string(params_ser)
-			.map_err(Error::RequestSerialization)?;
+		let id = to_raw_value(&id).map_err(Error::RequestSerialization)?;
+		let params = params_result.map_err(Error::RequestSerialization)?;
 		let request = jsonrpc::Request {
 			jsonrpc: "2.0",
-			id,
+			id: Cow::Owned(id),
 			method,
 			params: Cow::Owned(params),
 		};
@@ -91,10 +91,6 @@ impl<D: Driver> Controller<D> {
 			driver_name: driver_name.to_string(),
 			driver,
 		}
-	}
-
-	pub fn driver_name(&self) -> &str {
-		&self.driver_name
 	}
 
 	pub fn handle_reverse_auth(&self, _params: &ReverseAuthParams) -> ReverseAuthResult {
@@ -119,24 +115,25 @@ fn parse_params<'a, T: Deserialize<'a>>(request: &'a jsonrpc::Request) -> Result
 fn handle_request<'a, D: Driver>(controller: &'a mut Controller<D>, request: &'a jsonrpc::Request)
 	-> Result<jsonrpc::Response<'a>, Error>
 {
+	log::debug!("Received JSON-RPC request: {:?}", request);
 	let result = match Request::from_jsonrpc(request)? {
 		Request::ReverseAuth(params) => {
 			let result = controller.handle_reverse_auth(&params);
-			serde_json::to_value(result)
+			to_raw_value(&result)
 		},
 		Request::Play => {
 			let status = controller.handle_play();
-			serde_json::to_value(status)
+			to_raw_value(&status)
 		},
 		Request::Pause => {
 			let status = controller.handle_pause();
-			serde_json::to_value(status)
+			to_raw_value(&status)
 		},
 	};
 	let response = jsonrpc::Response {
 		jsonrpc: "2.0",
-		id: request.id,
-		result: Some(result.map_err(Error::ResponseSerialization)?),
+		id: Cow::Borrowed(request.id.as_ref()),
+		result: Some(Cow::Owned(result.map_err(Error::ResponseSerialization)?)),
 		error: None,
 	};
 	Ok(response)
@@ -152,7 +149,9 @@ impl<S> Connection<S>
 	where S: AsTcpStream + Stream
 {
 	pub fn process_one<D: Driver>(&mut self, controller: &mut Controller<D>) -> Result<(), Error> {
+		log::debug!("Waiting for WebSocket message");
 		let message = self.client.recv_message()?;
+		log::debug!("Received WebSocket message: {:?}", message);
 		let request = match message {
 			OwnedMessage::Text(ref msg) =>
 				serde_json::from_str::<jsonrpc::Request>(msg)
@@ -160,7 +159,7 @@ impl<S> Connection<S>
 			_ => Err(Error::UnexpectedMessage(message))?,
 		};
 		let response = handle_request(controller, &request)?;
-		response.validate().map_err(Error::BadJsonrpcResponse);
+		response.validate().map_err(Error::BadJsonrpcResponse)?;
 		let response_ser = serde_json::to_string(&response)
 			.map_err(Error::ResponseSerialization)?;
 		self.client.send_message(&OwnedMessage::Text(response_ser))?;
@@ -178,10 +177,10 @@ pub fn connect_and_process_until_error<D: Driver>(url: &Url, controller: &mut Co
 	-> Result<(), Error>
 {
 	let mut connection = connect(url)?;
+	log::debug!("Opened WebSocket connection to {}", url);
 	loop {
 		connection.process_one(controller)?;
 	}
-	Ok(())
 }
 
 pub fn connect_and_process_with_reconnects<D: Driver>(url: &Url, controller: &mut Controller<D>) {

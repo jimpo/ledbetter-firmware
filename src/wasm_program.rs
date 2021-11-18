@@ -21,16 +21,16 @@ wasm3::make_func_wrapper!(
 pub fn create_runtime() -> Result<Runtime, Error> {
 	let wasm_env = Environment::new()?;
 	let runtime = wasm_env.create_runtime(STACK_SIZE)?;
-	Ok((runtime))
+	Ok(runtime)
 }
 
 pub struct WasmProgram<'a> {
 	pixels: Vec<Vec<PixelVal>>,
 	module: Module<'a>,
 	tick: Function<'a, (), ()>,
-	get_pixel_red: Function<'a, (i32, i32), u32>,
-	get_pixel_grn: Function<'a, (i32, i32), u32>,
-	get_pixel_blu: Function<'a, (i32, i32), u32>,
+	get_pixel_red: Function<'a, (u32, u32), u32>,
+	get_pixel_grn: Function<'a, (u32, u32), u32>,
+	get_pixel_blu: Function<'a, (u32, u32), u32>,
 }
 
 fn make_pixels_array(layout: &LayoutConfig) -> Vec<Vec<PixelVal>> {
@@ -42,7 +42,7 @@ fn make_pixels_array(layout: &LayoutConfig) -> Vec<Vec<PixelVal>> {
 }
 
 impl<'a> WasmProgram<'a> {
-	pub fn new(layout: LayoutConfig, runtime: &'a Runtime, wasm_bin: Vec<u8>)
+	pub fn new(layout: &LayoutConfig, runtime: &'a Runtime, wasm_bin: Vec<u8>)
 		-> Result<Self, Error>
 	{
 		let mut module = runtime.parse_and_load_module(wasm_bin)?;
@@ -50,7 +50,7 @@ impl<'a> WasmProgram<'a> {
 		// This can be a closure since it doesn't need to be fast
 		module.link_closure(
 			"env", "abort",
-			|ctx, (msg_ref, file_name_ref, line, column): (u32, u32, u32, u32)| {
+			|_ctx, (msg_ref, file_name_ref, line, column): (u32, u32, u32, u32)| {
 				// TODO: Decode msg and fileName from instance memory
 				log::warn!(
 					"program aborted msgRef={}, fileNameRef={}, line={}, column={}",
@@ -70,28 +70,28 @@ impl<'a> WasmProgram<'a> {
 		}
 
 		let init_layout_set_num_strips =
-			module.find_function::<(i32), ()>("initLayoutSetNumStrips")?;
+			module.find_function::<u32, ()>("initLayoutSetNumStrips")?;
 		let init_layout_set_strip_len =
-			module.find_function::<(i32, i32), ()>("initLayoutSetStripLen")?;
+			module.find_function::<(u32, u32), ()>("initLayoutSetStripLen")?;
 		let init_layout_set_pixel_loc =
-			module.find_function::<(i32, i32, f32, f32), ()>("initLayoutSetPixelLoc")?;
+			module.find_function::<(u32, u32, f32, f32), ()>("initLayoutSetPixelLoc")?;
 		let init_layout_done = module.find_function::<(), ()>("initLayoutDone")?;
 		let tick = module.find_function::<(), ()>("tick")?;
-		let get_pixel_red = module.find_function::<(i32, i32), u32>("getPixelRed")?;
-		let get_pixel_grn = module.find_function::<(i32, i32), u32>("getPixelGrn")?;
-		let get_pixel_blu = module.find_function::<(i32, i32), u32>("getPixelBlu")?;
+		let get_pixel_red = module.find_function::<(u32, u32), u32>("getPixelRed")?;
+		let get_pixel_grn = module.find_function::<(u32, u32), u32>("getPixelGrn")?;
+		let get_pixel_blu = module.find_function::<(u32, u32), u32>("getPixelBlu")?;
 
-		init_layout_set_num_strips.call(layout.pixel_locations.len() as i32)?;
+		init_layout_set_num_strips.call(layout.pixel_locations.len() as u32)?;
 		for (i, strip_locations) in layout.pixel_locations.iter().enumerate() {
-			init_layout_set_strip_len.call(i as i32, strip_locations.len() as i32)?;
+			init_layout_set_strip_len.call(i as u32, strip_locations.len() as u32)?;
 			for (j, (x, y)) in strip_locations.iter().enumerate() {
-				init_layout_set_pixel_loc.call(i as i32, j as i32, *x, *y)?;
+				init_layout_set_pixel_loc.call(i as u32, j as u32, *x, *y)?;
 			}
 		}
 		init_layout_done.call()?;
 
 		let mut program = WasmProgram {
-			pixels: make_pixels_array(&layout),
+			pixels: make_pixels_array(layout),
 			module,
 			tick,
 			get_pixel_red,
@@ -105,9 +105,9 @@ impl<'a> WasmProgram<'a> {
 	fn update_pixel_vals(&mut self) -> Result<(), Error> {
 		for (i, strip_vals) in self.pixels.iter_mut().enumerate() {
 			for (j, val) in strip_vals.iter_mut().enumerate() {
-				let red = self.get_pixel_red.call(i as i32, j as i32)?;
-				let grn = self.get_pixel_grn.call(i as i32, j as i32)?;
-				let blu = self.get_pixel_blu.call(i as i32, j as i32)?;
+				let red = self.get_pixel_red.call(i as u32, j as u32)?;
+				let grn = self.get_pixel_grn.call(i as u32, j as u32)?;
+				let blu = self.get_pixel_blu.call(i as u32, j as u32)?;
 				*val = PixelVal::new(red as u8, grn as u8, blu as u8);
 			}
 		}
