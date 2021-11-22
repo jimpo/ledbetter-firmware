@@ -4,11 +4,13 @@ DAEMON="ledbetter-client"
 BINFILE="/usr/bin/$DAEMON"
 CONFIG="/usr/share/ledbetter/config.toml"
 PIDFILE="/var/run/$DAEMON.pid"
+LOGFILE="/var/log/$DAEMON.log"
 
 start() {
         printf 'Starting %s: ' "$DAEMON"
-        start-stop-daemon -b -m -S -q -p "$PIDFILE" -x "$BINFILE" \
-                -- --config "$CONFIG"
+        # Wait for entropy to be available before starting ledbetter
+        start-stop-daemon -b -m -S -q -p "$PIDFILE" -x /bin/sh \
+                -- -c "head -c 128 /dev/random >/dev/null && exec $BINFILE --config $CONFIG >$LOGFILE 2>&1"
         status=$?
         if [ "$status" -eq 0 ]; then
                 echo "OK"

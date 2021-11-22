@@ -1,5 +1,5 @@
 use palette::{FromColor, Hsv, encoding::Srgb, rgb::Rgb, rgb::channels::Argb, RgbHue};
-use wasm3::{Environment, Function, Module, Runtime};
+use wasm3::{Environment, Function, Runtime};
 
 use crate::config::LayoutConfig;
 use crate::error::Error;
@@ -26,7 +26,6 @@ pub fn create_runtime() -> Result<Runtime, Error> {
 
 pub struct WasmProgram<'a> {
 	pixels: Vec<Vec<PixelVal>>,
-	module: Module<'a>,
 	tick: Function<'a, (), ()>,
 	get_pixel_red: Function<'a, (u32, u32), u32>,
 	get_pixel_grn: Function<'a, (u32, u32), u32>,
@@ -59,15 +58,18 @@ impl<'a> WasmProgram<'a> {
 				Ok(())
 			}
 		)?;
+
+		let link_result = module.link_closure(
+			"env", "seed",
+			|_ctx, _: ()| Ok(rand::random::<f64>())
+		);
+		ignore_function_not_found(link_result)?;
+
 		let link_result = module.link_function::<(u32, u32, u32), u32>(
 			"colorConvert", "hsvToRgbEncoded",
 			hsv_to_rgb_encoded_wrapped
 		);
-		match link_result {
-			Ok(()) => {}
-			Err(wasm3::error::Error::FunctionNotFound) => {}
-			Err(err) => return Err(err.into()),
-		}
+		ignore_function_not_found(link_result)?;
 
 		let init_layout_set_num_strips =
 			module.find_function::<u32, ()>("initLayoutSetNumStrips")?;
@@ -92,7 +94,6 @@ impl<'a> WasmProgram<'a> {
 
 		let mut program = WasmProgram {
 			pixels: make_pixels_array(layout),
-			module,
 			tick,
 			get_pixel_red,
 			get_pixel_grn,
@@ -127,6 +128,13 @@ impl<'a> Program for WasmProgram<'a> {
 	}
 }
 
+fn ignore_function_not_found(result: Result<(), wasm3::error::Error>) -> Result<(), Error> {
+	match result {
+		Ok(()) | Err(wasm3::error::Error::FunctionNotFound) => Ok(()),
+		Err(err) => Err(err.into()),
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -147,14 +155,14 @@ mod tests {
 	fn test_program_constructor() {
 		let layout = layout_config();
 		let runtime = create_runtime().unwrap();
-		assert!(WasmProgram::new(layout, &runtime, TEST_PROGRAM.to_vec()).is_ok());
+		assert!(WasmProgram::new(&layout, &runtime, TEST_PROGRAM.to_vec()).is_ok());
 	}
 
 	#[test]
 	fn test_tick_and_render() {
 		let layout = layout_config();
 		let runtime = create_runtime().unwrap();
-		let mut program = WasmProgram::new(layout, &runtime, TEST_PROGRAM.to_vec()).unwrap();
+		let mut program = WasmProgram::new(&layout, &runtime, TEST_PROGRAM.to_vec()).unwrap();
 		assert_eq!(program.pixels(), &vec![vec![PixelVal::new(0, 0, 0); 150]; 2]);
 		program.tick().unwrap();
 		assert_eq!(program.pixels(), &vec![vec![PixelVal::new(255, 0, 0); 150]; 2]);

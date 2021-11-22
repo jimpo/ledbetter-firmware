@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use serde::{Deserialize, Serialize, Deserializer};
-use serde_json::value::{RawValue, Value};
+use serde_json::value::{RawValue};
 
 #[derive(Debug, Clone, derive_more::Display, derive_more::Error)]
 pub enum Error {

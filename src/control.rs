@@ -3,7 +3,7 @@ use websocket::{
 	OwnedMessage,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::value::{RawValue, to_raw_value};
+use serde_json::value::{Value, to_raw_value};
 use std::{
 	borrow::Cow,
 	time::Duration,
@@ -23,6 +23,7 @@ use crate::jsonrpc;
 
 pub enum Request {
 	ReverseAuth(ReverseAuthParams),
+	Run(RunParams),
 	Play,
 	Pause,
 }
@@ -47,11 +48,13 @@ impl Request {
 		jsonrpc_req.validate().map_err(Error::BadJsonrpcRequest)?;
 		if jsonrpc_req.method == "reverse_auth" {
 			Ok(Request::ReverseAuth(parse_params(&jsonrpc_req)?))
+		} else if jsonrpc_req.method == "run" {
+			Ok(Request::Run(parse_params(&jsonrpc_req)?))
 		} else if jsonrpc_req.method == "play" {
-			let _ = parse_params::<()>(&jsonrpc_req)?;
+			let _ = parse_params::<[Value;0]>(&jsonrpc_req)?;
 			Ok(Request::Play)
 		} else if jsonrpc_req.method == "pause" {
-			let _ = parse_params::<()>(&jsonrpc_req)?;
+			let _ = parse_params::<[Value;0]>(&jsonrpc_req)?;
 			Ok(Request::Pause)
 		} else {
 			Err(Error::UnknownRpcMethod(jsonrpc_req.method.to_string()))
@@ -63,10 +66,12 @@ impl Request {
 		let (method, params_result) = match self {
 			Request::ReverseAuth(params) =>
 				("reverse_auth", to_raw_value(params)),
+			Request::Run(params) =>
+				("run", to_raw_value(params)),
 			Request::Play =>
-				("play", to_raw_value(&())),
+				("play", to_raw_value(&[Value::Null; 0])),
 			Request::Pause =>
-				("pause", to_raw_value(&())),
+				("pause", to_raw_value(&[Value::Null; 0])),
 		};
 		let id = to_raw_value(&id).map_err(Error::RequestSerialization)?;
 		let params = params_result.map_err(Error::RequestSerialization)?;
@@ -99,6 +104,11 @@ impl<D: Driver> Controller<D> {
 		}
 	}
 
+	pub fn handle_run(&mut self, params: &RunParams) -> Result<driver::Status, Error> {
+		let wasm_bin = base64::decode(&params.wasm).map_err(Error::BadWasmEncoding)?;
+		self.driver.start(wasm_bin)
+	}
+
 	pub fn handle_play(&mut self) -> driver::Status {
 		self.driver.play()
 	}
@@ -116,26 +126,39 @@ fn handle_request<'a, D: Driver>(controller: &'a mut Controller<D>, request: &'a
 	-> Result<jsonrpc::Response<'a>, Error>
 {
 	log::debug!("Received JSON-RPC request: {:?}", request);
-	let result = match Request::from_jsonrpc(request)? {
+	let (result, is_error) = match Request::from_jsonrpc(request)? {
 		Request::ReverseAuth(params) => {
 			let result = controller.handle_reverse_auth(&params);
-			to_raw_value(&result)
+			(to_raw_value(&result), false)
+		},
+		Request::Run(params) => {
+			match controller.handle_run(&params) {
+				Ok(status) => (to_raw_value(&status), false),
+				Err(err) => (to_raw_value(&err.to_string()), true),
+			}
 		},
 		Request::Play => {
 			let status = controller.handle_play();
-			to_raw_value(&status)
+			(to_raw_value(&status), false)
 		},
 		Request::Pause => {
 			let status = controller.handle_pause();
-			to_raw_value(&status)
+			(to_raw_value(&status), false)
 		},
 	};
-	let response = jsonrpc::Response {
+	let result = Cow::Owned(result.map_err(Error::ResponseSerialization)?);
+	let mut response = jsonrpc::Response {
 		jsonrpc: "2.0",
 		id: Cow::Borrowed(request.id.as_ref()),
-		result: Some(Cow::Owned(result.map_err(Error::ResponseSerialization)?)),
+		result: None,
 		error: None,
 	};
+	if is_error {
+		response.error = Some(result);
+	} else {
+		response.result = Some(result);
+	}
+	log::debug!("Responding with: {:?}", response);
 	Ok(response)
 }
 
@@ -235,12 +258,12 @@ mod tests {
 				_ => Err(Error::UnexpectedMessage(message))?,
 			};
 			jsonrpc_resp.validate().map_err(Error::BadJsonrpcResponse)?;
-			assert_eq!(jsonrpc_resp.id, jsonrpc_req.id);
+			assert_eq!(jsonrpc_resp.id.get(), jsonrpc_req.id.get());
 			if let Some(result) = jsonrpc_resp.result {
-				return Ok(Ok(result));
+				return Ok(Ok(serde_json::to_value(result).unwrap()));
 			}
 			if let Some(error) = jsonrpc_resp.error {
-				return Ok(Err(error));
+				return Ok(Err(serde_json::to_value(error).unwrap()));
 			}
 			Err(Error::BadJsonrpcResponse(jsonrpc::Error::ResponseHasNeitherResultNorError))
 		}
@@ -259,6 +282,48 @@ mod tests {
 			let result = server_conn.send_request(request).unwrap();
 			let expected = ReverseAuthResult { name: "test".to_string() };
 			assert_eq!(result, Ok(serde_json::to_value(&expected).unwrap()));
+		});
+
+		let mut conn = connect(&Url::parse("ws://127.0.0.1:7357").unwrap()).unwrap();
+		conn.process_one(&mut controller).unwrap();
+		server_join_handle.join().unwrap();
+	}
+
+	#[test]
+	fn test_connect_process_run_with_good_wasm() {
+		let mut mock_driver = MockDriver::new();
+		mock_driver.expect_start()
+			.returning(|_| Ok(driver::Status::Playing));
+
+		let mut controller = Controller::new("test", mock_driver);
+		let mut server = <WsServer<NoTlsAcceptor, TcpListener>>::bind("127.0.0.1:7357").unwrap();
+		let server_join_handle = thread::spawn(move || {
+			let mut server_conn = ServerConnection::accept(&mut server);
+			let request = Request::Run(RunParams { wasm: base64::encode(b"this isn't wasm") });
+			let result = server_conn.send_request(request).unwrap();
+			let expected = driver::Status::Playing;
+			assert_eq!(result, Ok(serde_json::to_value(&expected).unwrap()));
+		});
+
+		let mut conn = connect(&Url::parse("ws://127.0.0.1:7357").unwrap()).unwrap();
+		conn.process_one(&mut controller).unwrap();
+		server_join_handle.join().unwrap();
+	}
+
+	#[test]
+	fn test_connect_process_run_with_bad_wasm() {
+		let mut mock_driver = MockDriver::new();
+		mock_driver.expect_start()
+			.returning(|_| Err(Error::Wasm3("this Wasm can go to hell".to_string())));
+
+		let mut controller = Controller::new("test", mock_driver);
+		let mut server = <WsServer<NoTlsAcceptor, TcpListener>>::bind("127.0.0.1:7357").unwrap();
+		let server_join_handle = thread::spawn(move || {
+			let mut server_conn = ServerConnection::accept(&mut server);
+			let request = Request::Run(RunParams { wasm: base64::encode(b"this isn't wasm") });
+			let result = server_conn.send_request(request).unwrap();
+			let expected = Error::Wasm3("this Wasm can go to hell".to_string()).to_string();
+			assert_eq!(result, Err(serde_json::to_value(&expected).unwrap()));
 		});
 
 		let mut conn = connect(&Url::parse("ws://127.0.0.1:7357").unwrap()).unwrap();

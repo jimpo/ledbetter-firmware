@@ -34,6 +34,8 @@ pub enum Error {
 	BadJsonrpcRequest(jsonrpc::Error),
 	#[from(ignore)]
 	BadJsonrpcResponse(jsonrpc::Error),
+	#[from(ignore)]
+	BadWasmEncoding(base64::DecodeError),
 }
 
 impl From<wasm3::error::Error> for Error {
