@@ -42,10 +42,11 @@ fn main_result(config: Config) -> Result<(), Error> {
 		#[cfg(feature = "term_display")]
 		OutputConfig::Terminal => move |layout: &LayoutConfig| Ok(TerminalWrite::new(layout)),
 		#[cfg(not(feature = "term_display"))]
-		OutputConfig::Terminal { pins: _pins } =>
+		OutputConfig::Terminal =>
 			return Err(Error::UnsupportedOutput { target: "terminal", feature: "term_display" }),
 		#[cfg(feature = "rpi")]
-		OutputConfig::Rpi { pins: ref pins } => {
+		OutputConfig::Rpi { ref pins } => {
+			let pins = pins.clone();
 			move |layout: &LayoutConfig| WS2812BRpiWrite::new(pins.iter().cloned(), layout)
 		}
 		#[cfg(not(feature = "rpi"))]

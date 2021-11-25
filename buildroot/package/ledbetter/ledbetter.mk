@@ -25,7 +25,9 @@ LEDBETTER_BIN_DIR = target/$(RUSTC_TARGET_NAME)/$(LEDBETTER_CARGO_MODE)
 LEDBETTER_CARGO_OPTS = \
 	$(if $(BR2_ENABLE_DEBUG),,--release) \
 	--target=$(RUSTC_TARGET_NAME) \
-	--manifest-path=$(@D)/Cargo.toml
+	--manifest-path=$(@D)/Cargo.toml \
+  --no-default-features \
+  --features rpi
 
 define LEDBETTER_BUILD_CMDS
 	$(TARGET_MAKE_ENV) $(LEDBETTER_CARGO_ENV) \

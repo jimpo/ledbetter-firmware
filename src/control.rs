@@ -224,8 +224,11 @@ pub fn connect_and_process_with_reconnects<D: Driver>(url: &Url, controller: &mu
 mod tests {
 	use super::*;
 	use websocket::server::{WsServer, NoTlsAcceptor};
-	use std::net::TcpListener;
-	use std::thread;
+	use std::{
+		net::TcpListener,
+		sync::atomic::{AtomicU16, Ordering},
+		thread,
+	};
 
 	use crate::driver::MockDriver;
 
@@ -233,6 +236,8 @@ mod tests {
 		client: Client<TcpStream>,
 		request_id: u32,
 	}
+
+	static TEST_SERVER_PORT: AtomicU16 = AtomicU16::new(7357);
 
 	impl ServerConnection {
 		fn accept(server: &mut WsServer<NoTlsAcceptor, TcpListener>) -> Self {
@@ -269,13 +274,27 @@ mod tests {
 		}
 	}
 
+	fn run_test_server(f: impl FnOnce(ServerConnection) + Send + 'static)
+		-> (Connection<TcpStream>, thread::JoinHandle<()>)
+	{
+		let port = TEST_SERVER_PORT.fetch_add(1, Ordering::SeqCst);
+		let mut server = <WsServer<NoTlsAcceptor, TcpListener>>::bind(
+			format!("127.0.0.1:{}", port)
+		).unwrap();
+		let server_join_handle = thread::spawn(move || {
+			let server_conn = ServerConnection::accept(&mut server);
+			f(server_conn)
+		});
+		let conn = connect(&Url::parse(&format!("ws://127.0.0.1:{}", port)).unwrap()).unwrap();
+		(conn, server_join_handle)
+	}
+
 	#[test]
 	fn test_connect_process_reverse_auth() {
 		let mock_driver = MockDriver::new();
 		let mut controller = Controller::new("test", mock_driver);
-		let mut server = <WsServer<NoTlsAcceptor, TcpListener>>::bind("127.0.0.1:7357").unwrap();
-		let server_join_handle = thread::spawn(move || {
-			let mut server_conn = ServerConnection::accept(&mut server);
+
+		let (mut conn, server_join_handle) = run_test_server(|mut server_conn| {
 			let request = Request::ReverseAuth(ReverseAuthParams {
 				challenge: "476b76368dbd5028c2f371d2a7018e32".to_string(),
 			});
@@ -284,7 +303,6 @@ mod tests {
 			assert_eq!(result, Ok(serde_json::to_value(&expected).unwrap()));
 		});
 
-		let mut conn = connect(&Url::parse("ws://127.0.0.1:7357").unwrap()).unwrap();
 		conn.process_one(&mut controller).unwrap();
 		server_join_handle.join().unwrap();
 	}
@@ -294,18 +312,15 @@ mod tests {
 		let mut mock_driver = MockDriver::new();
 		mock_driver.expect_start()
 			.returning(|_| Ok(driver::Status::Playing));
-
 		let mut controller = Controller::new("test", mock_driver);
-		let mut server = <WsServer<NoTlsAcceptor, TcpListener>>::bind("127.0.0.1:7357").unwrap();
-		let server_join_handle = thread::spawn(move || {
-			let mut server_conn = ServerConnection::accept(&mut server);
+
+		let (mut conn, server_join_handle) = run_test_server(|mut server_conn| {
 			let request = Request::Run(RunParams { wasm: base64::encode(b"this isn't wasm") });
 			let result = server_conn.send_request(request).unwrap();
 			let expected = driver::Status::Playing;
 			assert_eq!(result, Ok(serde_json::to_value(&expected).unwrap()));
 		});
 
-		let mut conn = connect(&Url::parse("ws://127.0.0.1:7357").unwrap()).unwrap();
 		conn.process_one(&mut controller).unwrap();
 		server_join_handle.join().unwrap();
 	}
@@ -317,16 +332,13 @@ mod tests {
 			.returning(|_| Err(Error::Wasm3("this Wasm can go to hell".to_string())));
 
 		let mut controller = Controller::new("test", mock_driver);
-		let mut server = <WsServer<NoTlsAcceptor, TcpListener>>::bind("127.0.0.1:7357").unwrap();
-		let server_join_handle = thread::spawn(move || {
-			let mut server_conn = ServerConnection::accept(&mut server);
+		let (mut conn, server_join_handle) = run_test_server(|mut server_conn| {
 			let request = Request::Run(RunParams { wasm: base64::encode(b"this isn't wasm") });
 			let result = server_conn.send_request(request).unwrap();
 			let expected = Error::Wasm3("this Wasm can go to hell".to_string()).to_string();
 			assert_eq!(result, Err(serde_json::to_value(&expected).unwrap()));
 		});
 
-		let mut conn = connect(&Url::parse("ws://127.0.0.1:7357").unwrap()).unwrap();
 		conn.process_one(&mut controller).unwrap();
 		server_join_handle.join().unwrap();
 	}
@@ -335,18 +347,15 @@ mod tests {
 	fn test_connect_process_play() {
 		let mut mock_driver = MockDriver::new();
 		mock_driver.expect_play().return_const(driver::Status::Playing);
-
 		let mut controller = Controller::new("test", mock_driver);
-		let mut server = <WsServer<NoTlsAcceptor, TcpListener>>::bind("127.0.0.1:7357").unwrap();
-		let server_join_handle = thread::spawn(move || {
-			let mut server_conn = ServerConnection::accept(&mut server);
+
+		let (mut conn, server_join_handle) = run_test_server(|mut server_conn| {
 			let request = Request::Play;
 			let result = server_conn.send_request(request).unwrap();
 			let expected = driver::Status::Playing;
 			assert_eq!(result, Ok(serde_json::to_value(&expected).unwrap()));
 		});
 
-		let mut conn = connect(&Url::parse("ws://127.0.0.1:7357").unwrap()).unwrap();
 		conn.process_one(&mut controller).unwrap();
 		server_join_handle.join().unwrap();
 	}
