@@ -4,12 +4,14 @@ use crate::jsonrpc;
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
-	#[from(ignore)]
-	#[display(fmt = "No GPIO cdev found with label {}", label)]
-	GpioCdevNotFound { label: String },
-	GpioCdev(gpio_cdev::Error),
 	UrlParseError(ParseError),
+	#[display(
+		fmt = "output target \"{}\" is not available unless compiled with \"{}\" feature",
+		target, feature
+	)]
+	UnsupportedOutput { target: &'static str, feature: &'static str },
 	WebSocketError(WebSocketError),
+	#[cfg(feature = "rpi")]
 	RpiWS2111x(rs_ws281x::WS2811Error),
 	#[cfg(feature = "term_display")]
 	TerminalOutput(std::io::Error),
@@ -27,6 +29,7 @@ pub enum Error {
 	#[from(ignore)]
 	RequestDeserialization(serde_json::Error),
 	#[from(ignore)]
+	#[allow(dead_code)]
 	ResponseDeserialization(serde_json::Error),
 	#[from(ignore)]
 	ResponseSerialization(serde_json::Error),

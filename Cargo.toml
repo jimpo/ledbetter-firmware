@@ -3,30 +3,34 @@ name = "ledbetter-client"
 version = "0.1.0"
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 base64 = "0.13.0"
 clap = "2.33.3"
 crossterm = { version = "0.22.1", optional = true }
 derive_more = "0.99.16"
 env_logger = "0.9.0"
-gpio-cdev = "0.5.0"
 log = "0.4.14"
 palette = "0.6.0"
 rand = "0.8.4"
-rs_ws281x = "0.4.2"
+rs_ws281x = { version = "0.4.2", optional = true }
 serde = { version = "1.0.130", features = ["derive"] }
 serde_json = { version = "1.0.69", features = ["raw_value"] }
 smart-leds-trait = "0.2.0"
 toml = "0.5.8"
-wasm3 = { version = "0.5.0", git = "https://github.com/jimpo/wasm3-rs", branch = "v0.5.0-public-api" }
 websocket = "0.26.2"
+
+[dependencies.wasm3]
+version = "0.5.0"
+git = "https://github.com/jimpo/wasm3-rs"
+branch = "v0.5.0-public-api"
+features = ["std", "use-32bit-slots"]
+default-features = false
 
 [dev-dependencies]
 assert_matches = "1.5.0"
 mockall = "0.10.2"
 
 [features]
-default = []
+default = ["term_display"]
+rpi = ["rs_ws281x"]
 term_display = ["crossterm"]

@@ -14,9 +14,17 @@ pub struct LayoutConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
 	pub name: String,
-	pub gpio_label: String,
-	pub gpio_lines: Vec<u32>,
 	pub render_freq: usize,
+	pub output: OutputConfig,
 	pub controller: ControllerConfig,
 	pub layout: LayoutConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "target")]
+pub enum OutputConfig {
+	#[serde(rename = "terminal")]
+	Terminal,
+	#[serde(rename = "rpi")]
+	Rpi { pins: Vec<u32> }
 }

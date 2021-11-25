@@ -7,25 +7,24 @@ mod program;
 #[cfg(feature = "term_display")]
 mod term_write;
 mod wasm_program;
-mod ws2812b_bitbang;
+#[cfg(feature = "rpi")]
 mod ws2812b_rpi;
 
 use env_logger::Env;
 use clap::{Arg, App};
-use websocket::url::{ParseError, Url};
-
 use std::{
 	fs,
 	process,
 };
+use websocket::url::{ParseError, Url};
 
-use crate::config::{Config, LayoutConfig};
+use crate::config::{Config, LayoutConfig, OutputConfig};
 use crate::control::{connect_and_process_with_reconnects, Controller};
 use crate::driver::DriverImpl;
 use crate::error::Error;
 #[cfg(feature = "term_display")]
 use crate::term_write::TerminalWrite;
-#[cfg(not(feature = "term_display"))]
+#[cfg(feature = "rpi")]
 use crate::ws2812b_rpi::WS2812BRpiWrite;
 
 
@@ -39,14 +38,19 @@ fn get_controller_ws_url(config: &Config) -> Result<Url, Error> {
 }
 
 fn main_result(config: Config) -> Result<(), Error> {
-	#[cfg(feature = "term_display")]
-	let ws2812b_factory = move |layout: &LayoutConfig| Ok(TerminalWrite::new(layout));
-	#[cfg(not(feature = "term_display"))]
-	let ws2812b_factory = {
-		let gpio_lines = config.gpio_lines.clone();
-		move |layout: &LayoutConfig| {
-			WS2812BRpiWrite::new(gpio_lines.iter().cloned(), layout)
+	let ws2812b_factory = match config.output {
+		#[cfg(feature = "term_display")]
+		OutputConfig::Terminal => move |layout: &LayoutConfig| Ok(TerminalWrite::new(layout)),
+		#[cfg(not(feature = "term_display"))]
+		OutputConfig::Terminal { pins: _pins } =>
+			return Err(Error::UnsupportedOutput { target: "terminal", feature: "term_display" }),
+		#[cfg(feature = "rpi")]
+		OutputConfig::Rpi { pins: ref pins } => {
+			move |layout: &LayoutConfig| WS2812BRpiWrite::new(pins.iter().cloned(), layout)
 		}
+		#[cfg(not(feature = "rpi"))]
+		OutputConfig::Rpi { pins: _pins } =>
+			return Err(Error::UnsupportedOutput { target: "rpi", feature: "rpi" }),
 	};
 	// Try out constructor once here where we can fail fast
 	let _ = ws2812b_factory(&config.layout)?;

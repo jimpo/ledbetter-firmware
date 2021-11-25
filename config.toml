@@ -1,7 +1,8 @@
 name = "Local test"
-gpio_label = ""
-gpio_lines = []
 render_freq = 1
+
+[output]
+target = "terminal"
 
 [controller]
 host = "127.0.0.1"
