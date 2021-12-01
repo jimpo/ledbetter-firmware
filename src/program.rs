@@ -17,10 +17,9 @@ pub struct TrivialProgram {
 }
 
 impl TrivialProgram {
-	#[allow(dead_code)]
-	pub fn new(layout: &LayoutConfig) -> Self {
+	pub fn new(layout: &LayoutConfig, val: PixelVal) -> Self {
 		let pixels = layout.pixel_locations.iter()
-			.map(|strip_locations| vec![PixelVal::new(255, 255, 255); strip_locations.len()])
+			.map(|strip_locations| vec![val; strip_locations.len()])
 			.collect::<Vec<_>>();
 		TrivialProgram {
 			pixels,
@@ -39,6 +38,9 @@ impl Program for TrivialProgram {
 }
 
 pub fn leds_iter<'a>(program: &'a impl Program) -> impl Iterator<Item=RGB8> + 'a {
-	program.pixels()[0].iter()
+	program.pixels()
+		.iter()
+		.map(|strip_pixels| strip_pixels.iter())
+		.flatten()
 		.map(|rgb| RGB8::new(rgb.red, rgb.green, rgb.blue))
 }

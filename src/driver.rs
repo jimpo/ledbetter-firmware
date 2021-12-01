@@ -9,7 +9,7 @@ use smart_leds_trait::{SmartLedsWrite, RGB8};
 
 use crate::config::LayoutConfig;
 use crate::error::Error;
-use crate::program::{Program, leds_iter};
+use crate::program::{Program, leds_iter, TrivialProgram, PixelVal};
 use crate::wasm_program::{WasmProgram, create_runtime};
 
 
@@ -92,6 +92,9 @@ impl<SLW, SLWF> Driver for DriverImpl<SLW, SLWF>
 				match thread_handle.join() {
 					Ok(Ok(())) => log::error!("thread unexpectedly exited without error"),
 					Ok(Err(err)) => return Err(err),
+					#[cfg(test)]
+					Err(_) => panic!("driver thread panicked"),
+					#[cfg(not(test))]
 					Err(_) => log::error!("driver thread panicked"),
 				}
 			},
@@ -109,6 +112,9 @@ impl<SLW, SLWF> Driver for DriverImpl<SLW, SLWF>
 				match thread_handle.join() {
 					Ok(Ok(())) => {}
 					Ok(Err(err)) => log::error!("error in driver thread: {}", err),
+					#[cfg(test)]
+					Err(_) => panic!("driver thread panicked"),
+					#[cfg(not(test))]
 					Err(_) => log::error!("driver thread panicked"),
 				}
 				self.status = Status::NotPlaying;
@@ -157,11 +163,27 @@ fn run_driver<SLW, SLWF>(
 		SLWF: Fn(&LayoutConfig) -> Result<SLW, Error>,
 {
 	let mut led_write = led_write_factory(layout)?;
+	let runtime = create_runtime()?;
+	let program = WasmProgram::new(layout, &runtime, wasm_bin)?;
+
+	let result = driver_loop(program, render_period, ctrl_receiver, &mut led_write);
+	if let Err(err) = clear_leds(layout, &mut led_write) {
+		log::error!("error clearing LEDs before driver exit: {}", err);
+	}
+	log::info!("exiting driver thread");
+	result
+}
+
+fn driver_loop<SLW>(
+	mut program: WasmProgram,
+	render_period: Duration,
+	ctrl_receiver: Receiver<CtrlAction>,
+	led_write: &mut SLW,
+) -> Result<(), Error>
+	where SLW: SmartLedsWrite<Error=Error, Color=RGB8>
+{
 	let mut playing = false;
 	let mut render_at = Instant::now();
-	let runtime = create_runtime()?;
-	let mut program = WasmProgram::new(layout, &runtime, wasm_bin)?;
-
 	loop {
 		let timeout = render_at.saturating_duration_since(Instant::now());
 		match ctrl_receiver.recv_timeout(timeout) {
@@ -181,8 +203,14 @@ fn run_driver<SLW, SLWF>(
 			},
 		}
 	}
-	log::info!("exiting driver thread");
 	Ok(())
+}
+
+fn clear_leds<SLW>(layout: &LayoutConfig, led_write: &mut SLW) -> Result<(), Error>
+	where SLW: SmartLedsWrite<Error=Error, Color=RGB8>
+{
+	let clear_program = TrivialProgram::new(layout, PixelVal::new(0, 0, 0));
+	led_write.write(leds_iter(&clear_program))
 }
 
 #[cfg(test)]
@@ -192,6 +220,7 @@ mod tests {
 	use mockall::mock;
 	use serde_json::value::Value;
 	use std::sync::{Arc, Mutex};
+	use mockall::predicate::eq;
 
 	const TEST_PROGRAM: &[u8]  = include_bytes!("../testMain.wasm");
 
@@ -266,6 +295,27 @@ mod tests {
 			driver.start(vec![]),
 			Err(Error::Wasm3(msg)) if msg == "underrun while parsing Wasm binary"
 		);
+	}
+
+	#[test]
+	fn test_driver_clears_leds_on_stop() {
+		let layout = layout_config();
+		let mut led_write = MockSmartLedsWrite::new();
+		led_write.expect_write()
+			.times(1)
+			.returning(|_| Ok(()));
+		led_write.expect_write()
+			.with(eq(vec![RGB8 { r: 0, g: 0, b: 0 }; 300]))
+			.times(1)
+			.returning(|_| Ok(()));
+
+		let led_write_ref = MockSmartLedsWriteRef::new(led_write);
+		let led_write_factory = move |_layout: &LayoutConfig| Ok(led_write_ref.clone());
+
+		let mut driver = DriverImpl::new(led_write_factory, 1, layout);
+		assert_matches!(driver.start(TEST_PROGRAM.to_vec()), Ok(Status::Playing));
+		thread::sleep(Duration::from_millis(10));
+		assert_eq!(driver.stop(), Status::NotPlaying);
 	}
 
 	#[test]

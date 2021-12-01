@@ -27,9 +27,7 @@ pub fn create_runtime() -> Result<Runtime, Error> {
 pub struct WasmProgram<'a> {
 	pixels: Vec<Vec<PixelVal>>,
 	tick: Function<'a, (), ()>,
-	get_pixel_red: Function<'a, (u32, u32), u32>,
-	get_pixel_grn: Function<'a, (u32, u32), u32>,
-	get_pixel_blu: Function<'a, (u32, u32), u32>,
+	get_pixel_val: Function<'a, (u32, u32), u32>,
 }
 
 fn make_pixels_array(layout: &LayoutConfig) -> Vec<Vec<PixelVal>> {
@@ -79,9 +77,7 @@ impl<'a> WasmProgram<'a> {
 			module.find_function::<(u32, u32, f32, f32), ()>("initLayoutSetPixelLoc")?;
 		let init_layout_done = module.find_function::<(), ()>("initLayoutDone")?;
 		let tick = module.find_function::<(), ()>("tick")?;
-		let get_pixel_red = module.find_function::<(u32, u32), u32>("getPixelRed")?;
-		let get_pixel_grn = module.find_function::<(u32, u32), u32>("getPixelGrn")?;
-		let get_pixel_blu = module.find_function::<(u32, u32), u32>("getPixelBlu")?;
+		let get_pixel_val = module.find_function::<(u32, u32), u32>("getPixelVal")?;
 
 		init_layout_set_num_strips.call(layout.pixel_locations.len() as u32)?;
 		for (i, strip_locations) in layout.pixel_locations.iter().enumerate() {
@@ -95,9 +91,7 @@ impl<'a> WasmProgram<'a> {
 		let mut program = WasmProgram {
 			pixels: make_pixels_array(layout),
 			tick,
-			get_pixel_red,
-			get_pixel_grn,
-			get_pixel_blu,
+			get_pixel_val,
 		};
 		program.update_pixel_vals()?;
 		Ok(program)
@@ -106,10 +100,8 @@ impl<'a> WasmProgram<'a> {
 	fn update_pixel_vals(&mut self) -> Result<(), Error> {
 		for (i, strip_vals) in self.pixels.iter_mut().enumerate() {
 			for (j, val) in strip_vals.iter_mut().enumerate() {
-				let red = self.get_pixel_red.call(i as u32, j as u32)?;
-				let grn = self.get_pixel_grn.call(i as u32, j as u32)?;
-				let blu = self.get_pixel_blu.call(i as u32, j as u32)?;
-				*val = PixelVal::new(red as u8, grn as u8, blu as u8);
+				let rgb = self.get_pixel_val.call(i as u32, j as u32)?;
+				*val = PixelVal::from_u32::<Argb>(rgb);
 			}
 		}
 		Ok(())

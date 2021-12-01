@@ -26,6 +26,7 @@ pub enum Request {
 	Run(RunParams),
 	Play,
 	Pause,
+	Stop,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -56,6 +57,9 @@ impl Request {
 		} else if jsonrpc_req.method == "pause" {
 			let _ = parse_params::<[Value;0]>(&jsonrpc_req)?;
 			Ok(Request::Pause)
+		} else if jsonrpc_req.method == "stop" {
+			let _ = parse_params::<[Value;0]>(&jsonrpc_req)?;
+			Ok(Request::Stop)
 		} else {
 			Err(Error::UnknownRpcMethod(jsonrpc_req.method.to_string()))
 		}
@@ -72,6 +76,8 @@ impl Request {
 				("play", to_raw_value(&[Value::Null; 0])),
 			Request::Pause =>
 				("pause", to_raw_value(&[Value::Null; 0])),
+			Request::Stop =>
+				("stop", to_raw_value(&[Value::Null; 0])),
 		};
 		let id = to_raw_value(&id).map_err(Error::RequestSerialization)?;
 		let params = params_result.map_err(Error::RequestSerialization)?;
@@ -116,6 +122,10 @@ impl<D: Driver> Controller<D> {
 	pub fn handle_pause(&mut self) -> driver::Status {
 		self.driver.pause()
 	}
+
+	pub fn handle_stop(&mut self) -> driver::Status {
+		self.driver.stop()
+	}
 }
 
 fn parse_params<'a, T: Deserialize<'a>>(request: &'a jsonrpc::Request) -> Result<T, Error> {
@@ -143,6 +153,10 @@ fn handle_request<'a, D: Driver>(controller: &'a mut Controller<D>, request: &'a
 		},
 		Request::Pause => {
 			let status = controller.handle_pause();
+			(to_raw_value(&status), false)
+		},
+		Request::Stop => {
+			let status = controller.handle_stop();
 			(to_raw_value(&status), false)
 		},
 	};
