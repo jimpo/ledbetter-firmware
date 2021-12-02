@@ -23,6 +23,7 @@ use crate::jsonrpc;
 
 pub enum Request {
 	ReverseAuth(ReverseAuthParams),
+	GetStatus,
 	Run(RunParams),
 	Play,
 	Pause,
@@ -49,6 +50,9 @@ impl Request {
 		jsonrpc_req.validate().map_err(Error::BadJsonrpcRequest)?;
 		if jsonrpc_req.method == "reverse_auth" {
 			Ok(Request::ReverseAuth(parse_params(&jsonrpc_req)?))
+		} else if jsonrpc_req.method == "get_status" {
+			let _ = parse_params::<[Value;0]>(&jsonrpc_req)?;
+			Ok(Request::GetStatus)
 		} else if jsonrpc_req.method == "run" {
 			Ok(Request::Run(parse_params(&jsonrpc_req)?))
 		} else if jsonrpc_req.method == "play" {
@@ -70,6 +74,8 @@ impl Request {
 		let (method, params_result) = match self {
 			Request::ReverseAuth(params) =>
 				("reverse_auth", to_raw_value(params)),
+			Request::GetStatus =>
+				("get_status", to_raw_value(&[Value::Null; 0])),
 			Request::Run(params) =>
 				("run", to_raw_value(params)),
 			Request::Play =>
@@ -110,6 +116,10 @@ impl<D: Driver> Controller<D> {
 		}
 	}
 
+	pub fn handle_get_status(&self) -> driver::Status {
+		self.driver.status()
+	}
+
 	pub fn handle_run(&mut self, params: &RunParams) -> Result<driver::Status, Error> {
 		let wasm_bin = base64::decode(&params.wasm).map_err(Error::BadWasmEncoding)?;
 		self.driver.start(wasm_bin)
@@ -139,6 +149,10 @@ fn handle_request<'a, D: Driver>(controller: &'a mut Controller<D>, request: &'a
 	let (result, is_error) = match Request::from_jsonrpc(request)? {
 		Request::ReverseAuth(params) => {
 			let result = controller.handle_reverse_auth(&params);
+			(to_raw_value(&result), false)
+		},
+		Request::GetStatus => {
+			let result = controller.handle_get_status();
 			(to_raw_value(&result), false)
 		},
 		Request::Run(params) => {

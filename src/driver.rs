@@ -29,6 +29,7 @@ pub enum CtrlAction {
 
 #[cfg_attr(test, mockall::automock)]
 pub trait Driver {
+	fn status(&self) -> Status;
 	fn start(&mut self, wasm_bin: Vec<u8>) -> Result<Status, Error>;
 	fn stop(&mut self) -> Status;
 	fn play(&mut self) -> Status;
@@ -70,6 +71,10 @@ impl<SLW, SLWF> Driver for DriverImpl<SLW, SLWF>
 		SLW: SmartLedsWrite<Error=Error, Color=RGB8>,
 		SLWF: (Fn(&LayoutConfig) -> Result<SLW, Error>) + Send + Sync + 'static,
 {
+	fn status(&self) -> Status {
+		self.status
+	}
+
 	fn start(&mut self, wasm_bin: Vec<u8>) -> Result<Status, Error> {
 		self.stop();
 
