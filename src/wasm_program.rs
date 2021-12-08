@@ -45,7 +45,7 @@ impl<'a> WasmProgram<'a> {
 		let mut module = runtime.parse_and_load_module(wasm_bin)?;
 
 		// This can be a closure since it doesn't need to be fast
-		module.link_closure(
+		let link_result = module.link_closure(
 			"env", "abort",
 			|_ctx, (msg_ref, file_name_ref, line, column): (u32, u32, u32, u32)| {
 				// TODO: Decode msg and fileName from instance memory
@@ -55,7 +55,8 @@ impl<'a> WasmProgram<'a> {
 				);
 				Ok(())
 			}
-		)?;
+		);
+		ignore_function_not_found(link_result)?;
 
 		let link_result = module.link_closure(
 			"env", "seed",

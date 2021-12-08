@@ -203,18 +203,23 @@ impl<S> Connection<S>
 		log::debug!("Waiting for WebSocket message");
 		let message = self.client.recv_message()?;
 		log::debug!("Received WebSocket message: {:?}", message);
-		let request = match message {
-			OwnedMessage::Text(ref msg) =>
-				serde_json::from_str::<jsonrpc::Request>(msg)
-					.map_err(Error::RequestDeserialization)?,
-			_ => Err(Error::UnexpectedMessage(message))?,
-		};
-		let response = handle_request(controller, &request)?;
-		response.validate().map_err(Error::BadJsonrpcResponse)?;
-		let response_ser = serde_json::to_string(&response)
-			.map_err(Error::ResponseSerialization)?;
-		self.client.send_message(&OwnedMessage::Text(response_ser))?;
-		Ok(())
+		match message {
+			OwnedMessage::Text(ref msg) => {
+				let request = serde_json::from_str::<jsonrpc::Request>(msg)
+					.map_err(Error::RequestDeserialization)?;
+				let response = handle_request(controller, &request)?;
+				response.validate().map_err(Error::BadJsonrpcResponse)?;
+				let response_ser = serde_json::to_string(&response)
+					.map_err(Error::ResponseSerialization)?;
+				self.client.send_message(&OwnedMessage::Text(response_ser))
+					.map_err(Error::from)
+			}
+			OwnedMessage::Ping(data) => {
+				self.client.send_message(&OwnedMessage::Pong(data))
+					.map_err(Error::from)
+			}
+			_ => Err(Error::UnexpectedMessage(message))
+		}
 	}
 }
 
